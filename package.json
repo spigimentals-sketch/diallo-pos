@@ -1,0 +1,17 @@
+{
+  "name": "diallo-pos-server",
+  "version": "1.0.0",
+  "description": "Backend API for Diallo POS",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/seed.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "node-sqlite3-wasm": "^0.8.30"
+  }
+}
