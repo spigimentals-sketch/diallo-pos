@@ -10,7 +10,7 @@ const r = Router();
 
 // Where uploaded product photos are stored on disk.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // Small helper to wrap handlers and forward errors.
@@ -19,7 +19,14 @@ const h = (fn) => (req, res) => {
   catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
 };
 
-const publicUser = (u) => u && ({ id: u.id, name: u.name, username: u.username, role: u.role, email: u.email, lastActive: u.lastActive, store: u.store });
+// A user counts as "online" if they've logged in or sent a heartbeat in the
+// last 90s (the front-end pings every 45s while signed in, so this tolerates
+// one missed ping). Pre-existing demo accounts have a human string like
+// "2 min ago" instead of a timestamp — Date.parse returns NaN for those, so
+// they correctly fall through to offline rather than throwing.
+const ONLINE_THRESHOLD_MS = 90 * 1000;
+const withOnline = (u) => u && { ...u, online: !!u.lastActive && (Date.now() - Date.parse(u.lastActive)) < ONLINE_THRESHOLD_MS };
+const publicUser = (u) => u && withOnline({ id: u.id, name: u.name, username: u.username, role: u.role, email: u.email, lastActive: u.lastActive, store: u.store });
 
 // ---------------- AUTH ----------------
 // Public: accounts to suggest on the login screen (no secrets).
@@ -35,7 +42,7 @@ r.post('/auth/login', h((req, res) => {
   if (!user || !verifyPin(pin, user.pin_hash, user.pin_salt)) {
     return res.status(401).json({ error: 'Incorrect username or PIN' });
   }
-  db.prepare('UPDATE users SET lastActive=? WHERE id=?').run('Just now', user.id);
+  db.prepare('UPDATE users SET lastActive=? WHERE id=?').run(new Date().toISOString(), user.id);
   res.json({ token: issueToken(user), user: publicUser(user) });
 }));
 
@@ -44,6 +51,13 @@ r.get('/auth/me', requireAuth, h((req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
   if (!user) return res.status(401).json({ error: 'Account no longer exists' });
   res.json({ user: publicUser(user) });
+}));
+
+// Authenticated: ping to mark this account as currently active. The front-end
+// calls this every 45s while signed in, powering the admin "who's online" list.
+r.post('/auth/heartbeat', requireAuth, h((req, res) => {
+  db.prepare('UPDATE users SET lastActive=? WHERE id=?').run(new Date().toISOString(), req.user.id);
+  res.json({ ok: true });
 }));
 
 // Admin/manager: set or reset a user's PIN.
@@ -66,8 +80,8 @@ r.post('/upload', h((req, res) => {
   const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) throw new Error('unsupported image data');
   const ext = (m[1].split('/')[1] || 'png').replace('jpeg', 'jpg');
-  const safe = filename.replace(/[^a-z0-9._-]/gi, '_').slice(0, 40);
-  const name = `${Date.now()}-${safe}.${ext}`;
+  const base = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[^a-z0-9._-]/gi, '_').slice(0, 40) || 'photo';
+  const name = `${Date.now()}-${base}.${ext}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, name), Buffer.from(m[2], 'base64'));
   res.status(201).json({ path: `/uploads/${name}` });
 }));
@@ -169,9 +183,10 @@ r.post('/stock-movements', h((req, res) => {
 }));
 
 // ---------------- USERS ----------------
-r.get('/users', h((req, res) =>
-  res.json(db.prepare('SELECT id,name,username,role,email,lastActive,store FROM users ORDER BY id').all())
-));
+r.get('/users', h((req, res) => {
+  const rows = db.prepare('SELECT id,name,username,role,email,lastActive,store FROM users ORDER BY id').all();
+  res.json(rows.map(withOnline));
+}));
 
 r.post('/users', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
   const { name, role = 'cashier', email = '', store = '', pin = '1234' } = req.body;
@@ -184,7 +199,7 @@ r.post('/users', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
   while (db.prepare('SELECT 1 FROM users WHERE username=?').get(username)) username = `${base}${++n}`;
   const { hash, salt } = hashPin(pin);
   const info = db.prepare('INSERT INTO users (name,username,role,email,lastActive,store,pin_hash,pin_salt) VALUES (?,?,?,?,?,?,?,?)')
-    .run(name, username, role, email, 'Just now', store, hash, salt);
+    .run(name, username, role, email, null, store, hash, salt);
   res.status(201).json(publicUser(db.prepare('SELECT * FROM users WHERE id=?').get(info.lastInsertRowid)));
 }));
 
