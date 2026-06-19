@@ -39,6 +39,7 @@ const TRANSLATIONS = {
     sub_stores: '4 active locations',
     sub_reports: 'TVA-compliant exports for DGI',
     sub_settings: 'Configure your business and POS',
+    sub_shifts: 'Track employee clock-in and clock-out',
     // POS
     search_products: 'Search products or SKU...',
     scan: 'Scan', all_items: 'All Items',
@@ -148,6 +149,7 @@ const TRANSLATIONS = {
     sub_stores: '4 emplacements actifs',
     sub_reports: 'Exports conformes DGI',
     sub_settings: 'Configurez votre entreprise et la caisse',
+    sub_shifts: 'Suivez les arrivées et départs des employés',
     search_products: 'Rechercher produit ou SKU...',
     scan: 'Scanner', all_items: 'Tous',
     cosmetics: 'Cosmétiques', wines: 'Vins', whiskey: 'Whisky',
@@ -401,6 +403,18 @@ const fmtShort = (n) => {
   if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K';
   return n.toString();
 };
+// Turns a lastActive ISO timestamp into "Just now" / "5 min ago" / etc.
+// Legacy demo accounts still carry a plain string (e.g. "2 min ago") instead
+// of a timestamp — Date.parse returns NaN for those, so we just show it as-is.
+const relativeLastActive = (iso) => {
+  if (!iso) return 'Never';
+  const ms = Date.now() - Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  if (ms < 60_000) return 'Just now';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} hr ago`;
+  return `${Math.floor(ms / 86_400_000)} d ago`;
+};
 
 const TIER_COLOR = {
   Platinum: 'bg-gradient-to-br from-stone-700 to-stone-900 text-white',
@@ -453,10 +467,10 @@ const Sidebar = ({ view, setView, mobileNav, closeNav }) => {
   ];
   const nav = allNav.filter(item => can[item.id]);
   return (
-    <aside className={`w-60 bg-white border-r border-stone-200/80 flex flex-col h-full flex-shrink-0 z-40 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:shadow-2xl max-md:transition-transform ${mobileNav ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}`}>
+    <aside className={`w-60 bg-white border-r border-stone-200/80 flex flex-col h-full flex-shrink-0 z-40 max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:shadow-2xl max-lg:transition-transform ${mobileNav ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}`}>
       <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
         <Logo />
-        <button onClick={closeNav} className="md:hidden p-1.5 rounded-md hover:bg-stone-100 text-stone-500"><X size={18} /></button>
+        <button onClick={closeNav} className="lg:hidden p-1.5 rounded-md hover:bg-stone-100 text-stone-500"><X size={18} /></button>
       </div>
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {nav.map(item => {
@@ -524,9 +538,9 @@ const TopBar = ({ title, subtitle, children, onMenu }) => {
   const [open, setOpen] = useState(false);
   const lowStock = (products || []).filter(p => p.stock < 10);
   return (
-    <div className="flex items-center justify-between px-5 md:px-7 py-4 bg-white/70 backdrop-blur border-b border-stone-200/80 flex-shrink-0">
+    <div className="flex items-center justify-between px-4 sm:px-5 lg:px-7 py-4 bg-white/70 backdrop-blur border-b border-stone-200/80 flex-shrink-0">
       <div className="flex items-center gap-3 min-w-0">
-        <button onClick={onMenu} className="md:hidden p-2 -ml-1 rounded-lg hover:bg-stone-100 text-stone-700 flex-shrink-0"><Menu size={20} /></button>
+        <button onClick={onMenu} className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-stone-100 text-stone-700 flex-shrink-0"><Menu size={20} /></button>
         <div className="min-w-0">
           <h1 className="font-serif text-xl md:text-2xl text-stone-900 leading-tight truncate" style={{ fontFamily: "'Fraunces', serif", fontWeight: 500 }}>{title}</h1>
           {subtitle && <p className="text-xs text-stone-500 mt-0.5 truncate">{subtitle}</p>}
@@ -563,9 +577,9 @@ const TopBar = ({ title, subtitle, children, onMenu }) => {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-medium">
-          <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`} />
-          Central · {online ? 'Online' : 'Offline'}
+        <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-medium whitespace-nowrap">
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${online ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`} />
+          <span className="hidden sm:inline">Central · </span>{online ? 'Online' : 'Offline'}
         </div>
       </div>
     </div>
@@ -923,9 +937,9 @@ const POSView = () => {
   const receiptData = { items: cart, subtotal, discount, tva, total, customer, method: paymentMethod, earnedPoints, invoiceNo: lastInvoice };
 
   return (
-    <div className="flex-1 flex overflow-hidden">
-      <div className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-stone-50 via-white to-emerald-50/30">
-        <div className="px-7 py-4 border-b border-stone-200/60 bg-white/60 backdrop-blur flex-shrink-0">
+    <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
+      <div className="flex-1 flex flex-col lg:overflow-hidden bg-gradient-to-br from-stone-50 via-white to-emerald-50/30">
+        <div className="px-4 sm:px-7 py-4 border-b border-stone-200/60 bg-white/60 backdrop-blur flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
               <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
@@ -938,14 +952,14 @@ const POSView = () => {
                 }}
                 className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
             </div>
-            <button onClick={handleScan} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-900 text-white rounded-xl text-sm font-medium hover:bg-emerald-800 shadow-sm">
-              <Scan size={16} />{t('scan')}
+            <button onClick={handleScan} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-emerald-900 text-white rounded-xl text-sm font-medium hover:bg-emerald-800 shadow-sm flex-shrink-0">
+              <Scan size={16} /><span className="hidden sm:inline">{t('scan')}</span>
             </button>
           </div>
         </div>
 
-        <div className="px-7 py-4 border-b border-stone-200/60 flex-shrink-0">
-          <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+        <div className="px-4 sm:px-7 py-4 border-b border-stone-200/60 flex-shrink-0">
+          <div className="flex flex-wrap gap-2">
             {CATEGORIES.map(cat => {
               const Icon = cat.icon;
               const active = activeCat === cat.id;
@@ -961,8 +975,8 @@ const POSView = () => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-7 py-5">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        <div className="lg:flex-1 lg:overflow-y-auto px-4 sm:px-7 py-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
             {filtered.map(p => {
               const lowStock = p.stock < 10;
               return (
@@ -999,7 +1013,7 @@ const POSView = () => {
         </div>
       </div>
 
-      <div className="w-[420px] bg-white border-l border-stone-200/80 flex flex-col flex-shrink-0">
+      <div className="w-full lg:w-[420px] bg-white border-t lg:border-t-0 lg:border-l border-stone-200/80 flex flex-col flex-shrink-0">
         <div className="p-5 border-b border-stone-200/80">
           <div className="text-[10px] uppercase tracking-widest text-stone-400 font-medium mb-2">{t('customer')}</div>
           {customer ? (
@@ -1043,7 +1057,7 @@ const POSView = () => {
             <div className="space-y-2">
               {cart.map(item => (
                 <div key={item.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-stone-50 group">
-                  <div className="w-11 h-11 rounded-lg bg-stone-100 flex items-center justify-center text-2xl flex-shrink-0">{item.emoji}</div>
+                  <div className="w-11 h-11 rounded-lg bg-stone-100 flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden">{item.image ? <img src={imageUrl(item.image)} alt="" className="w-full h-full object-cover" /> : item.emoji}</div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-stone-900 truncate">{productName(item)}</div>
                     <div className="text-xs text-stone-500">{fmt(item.price)}</div>
@@ -1174,16 +1188,16 @@ const DashboardView = () => {
   const ordersCount = report?.totals?.orders != null ? String(report.totals.orders) : '0';
 
   return (
-    <div className="flex-1 overflow-y-auto bg-gradient-to-br from-stone-50 via-white to-emerald-50/20 p-7">
-      <div className="grid grid-cols-4 gap-4 mb-5">
+    <div className="flex-1 overflow-y-auto bg-gradient-to-br from-stone-50 via-white to-emerald-50/20 p-4 sm:p-7">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <KpiCard label={t('todays_sales')} value={todaysSales} icon={TrendingUp} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label={t('orders')} value={ordersCount} icon={Receipt} accent="bg-amber-50 text-amber-700" />
         <KpiCard label={t('customers')} value={String(customers.length)} icon={Users} accent="bg-rose-50 text-rose-700" />
         <KpiCard label={t('low_stock_items')} value={String(lowCount)} icon={AlertTriangle} accent="bg-orange-50 text-orange-700" />
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-5">
-        <div className="col-span-2 bg-white rounded-2xl p-5 border border-stone-200/80">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
+        <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-stone-200/80">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('sales_this_week')}</h3>
@@ -1237,8 +1251,8 @@ const DashboardView = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2 bg-white rounded-2xl p-5 border border-stone-200/80">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-stone-200/80">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('top_products')}</h3>
@@ -1250,16 +1264,16 @@ const DashboardView = () => {
               <div key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-stone-50">
                 <div className="w-7 h-7 rounded-md bg-stone-100 flex items-center justify-center text-xs font-mono text-stone-500">{i + 1}</div>
                 <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center text-2xl overflow-hidden">{p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}</div>
-                <div className="flex-1">
-                  <div className="text-sm font-medium text-stone-900">{p.name}</div>
-                  <div className="text-xs text-stone-500">{p.sku}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-stone-900 truncate">{p.name}</div>
+                  <div className="text-xs text-stone-500 truncate">{p.sku}</div>
                 </div>
-                <div className="flex-1 max-w-[180px]">
+                <div className="hidden sm:block flex-1 max-w-[180px]">
                   <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
                     <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-700 rounded-full" style={{ width: `${100 - i * 14}%` }} />
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right flex-shrink-0">
                   <div className="text-sm font-medium text-stone-900">{fmt(p.price * (28 - i * 4))}</div>
                   <div className="text-xs text-stone-500">{28 - i * 4} sold</div>
                 </div>
@@ -1313,14 +1327,14 @@ const InventoryView = () => {
   return (
     <div className="flex-1 overflow-y-auto bg-stone-50/30">
       {/* Sub-nav tabs */}
-      <div className="px-7 pt-5 sticky top-0 bg-stone-50/80 backdrop-blur z-10 border-b border-stone-200/60">
-        <div className="flex gap-1">
+      <div className="px-4 sm:px-7 pt-5 sticky top-0 bg-stone-50/80 backdrop-blur z-10 border-b border-stone-200/60">
+        <div className="flex gap-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
           {tabs.map(tb => {
             const Icon = tb.icon;
             const active = tab === tb.id;
             return (
               <button key={tb.id} onClick={() => setTab(tb.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all whitespace-nowrap flex-shrink-0 ${
                   active ? 'text-emerald-900 border-emerald-900' : 'text-stone-500 border-transparent hover:text-stone-900'
                 }`}>
                 <Icon size={15} strokeWidth={1.8} />{tb.label}
@@ -1330,7 +1344,7 @@ const InventoryView = () => {
         </div>
       </div>
 
-      <div className="p-7">
+      <div className="p-4 sm:p-7">
         {tab === 'products' && <ProductsPanel />}
         {tab === 'suppliers' && <SuppliersPanel />}
         {tab === 'purchase' && <PurchaseOrdersPanel />}
@@ -1367,7 +1381,7 @@ const ProductsPanel = () => {
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <KpiCard label={t('total_skus')} value={products.length.toLocaleString()} icon={Package} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label={t('stock_value')} value={`${fmtShort(stockValue)} FCFA`} icon={Wallet} accent="bg-amber-50 text-amber-700" />
         <KpiCard label={t('low_stock_items')} value={String(lowStockCount)} icon={AlertTriangle} accent="bg-orange-50 text-orange-700" />
@@ -1375,13 +1389,13 @@ const ProductsPanel = () => {
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
-        <div className="p-5 border-b border-stone-200/80 flex items-center gap-3">
-          <div className="relative flex-1 max-w-md">
+        <div className="p-4 sm:p-5 border-b border-stone-200/80 flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-full sm:min-w-0 sm:max-w-md order-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('search_products')}
               className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600" />
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1 order-2">
             {[{ id: 'all', label: t('all') }, { id: 'low', label: t('low_stock') }].map(f => (
               <button key={f.id} onClick={() => setFilter(f.id)}
                 className={`px-3 py-2 rounded-lg text-xs font-medium ${filter === f.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'}`}>
@@ -1389,16 +1403,17 @@ const ProductsPanel = () => {
               </button>
             ))}
           </div>
-          <button onClick={exportProducts} className="ml-auto flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
+          <button onClick={exportProducts} className="sm:ml-auto order-3 flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
             <Download size={14} /> {t('export')}
           </button>
           {can.editInventory && (
-            <button onClick={openAdd} className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
+            <button onClick={openAdd} className="order-4 flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
               <Plus size={14} /> {t('add_product')}
             </button>
           )}
         </div>
 
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
@@ -1453,6 +1468,7 @@ const ProductsPanel = () => {
             })}
           </tbody>
         </table>
+        </div>
       </div>
       <ProductForm open={modalOpen} onClose={() => setModalOpen(false)} initial={editing} />
     </>
@@ -1477,14 +1493,14 @@ const SuppliersPanel = () => {
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <KpiCard label={t('suppliers')} value={SUPP.length.toString()} icon={Truck} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label={t('active')} value={active.toString()} icon={CheckCircle2} accent="bg-sky-50 text-sky-700" />
         <KpiCard label={t('products_count')} value={totalProducts.toString()} icon={Package} accent="bg-amber-50 text-amber-700" />
         <KpiCard label="Avg. days since order" value={avgDaysSinceOrder != null ? `${avgDaysSinceOrder} days` : '—'} icon={Clock} accent="bg-rose-50 text-rose-700" />
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-5">
         {filtered.slice(0, 6).map(s => (
           <div key={s.id} className="bg-white rounded-2xl p-5 border border-stone-200/80 hover:shadow-md hover:shadow-stone-900/5 transition-all">
             <div className="flex items-start justify-between mb-3">
@@ -1519,16 +1535,17 @@ const SuppliersPanel = () => {
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
-        <div className="p-5 border-b border-stone-200/80 flex items-center gap-3">
-          <div className="relative flex-1 max-w-md">
+        <div className="p-4 sm:p-5 border-b border-stone-200/80 flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-full sm:min-w-0 sm:max-w-md">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search suppliers..."
               className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600" />
           </div>
-          <button onClick={() => { setEditing(null); setModalOpen(true); }} className="ml-auto flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
+          <button onClick={() => { setEditing(null); setModalOpen(true); }} className="sm:ml-auto flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
             <Plus size={14} /> {t('add_supplier')}
           </button>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
@@ -1570,6 +1587,7 @@ const SuppliersPanel = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
       <SupplierForm open={modalOpen} onClose={() => setModalOpen(false)} initial={editing} />
     </>
@@ -1617,7 +1635,7 @@ const PurchaseOrdersPanel = () => {
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <KpiCard label="Open POs" value={(counts.draft + counts.sent + counts['in-transit']).toString()} icon={ClipboardList} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label="Pending delivery" value={fmtShort(pending) + ' FCFA'} icon={Truck} accent="bg-amber-50 text-amber-700" />
         <KpiCard label="Received this month" value={counts.received.toString()} icon={CheckCircle2} accent="bg-sky-50 text-sky-700" />
@@ -1646,6 +1664,7 @@ const PurchaseOrdersPanel = () => {
             <Plus size={14} /> {t('create_po')}
           </button>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
@@ -1697,6 +1716,7 @@ const PurchaseOrdersPanel = () => {
             })}
           </tbody>
         </table>
+        </div>
       </div>
       <POForm open={createOpen} onClose={() => setCreateOpen(false)} />
     </>
@@ -1722,7 +1742,7 @@ const StockMovementsPanel = () => {
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <KpiCard label={t('stock_in')} value={ins.toString()} icon={ArrowDownLeft} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label={t('stock_out')} value={outs.toString()} icon={ArrowUpLeft} accent="bg-amber-50 text-amber-700" />
         <KpiCard label={t('adjustment')} value={adjusts.toString()} icon={RefreshCw} accent="bg-rose-50 text-rose-700" />
@@ -1730,8 +1750,8 @@ const StockMovementsPanel = () => {
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
-        <div className="p-5 border-b border-stone-200/80 flex items-center gap-3">
-          <div className="flex gap-1">
+        <div className="p-4 sm:p-5 border-b border-stone-200/80 flex items-center gap-3">
+          <div className="flex gap-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
             {[
               { id: 'all', label: t('all') },
               { id: 'in', label: t('stock_in') },
@@ -1739,7 +1759,7 @@ const StockMovementsPanel = () => {
               { id: 'adjust', label: t('adjustment') },
             ].map(f => (
               <button key={f.id} onClick={() => setTypeFilter(f.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap flex-shrink-0 ${
                   typeFilter === f.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100 border border-stone-200'
                 }`}>
                 {f.label}
@@ -1750,6 +1770,7 @@ const StockMovementsPanel = () => {
             <Download size={14} /> {t('export')}
           </button>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
@@ -1790,6 +1811,7 @@ const StockMovementsPanel = () => {
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   );
@@ -1824,14 +1846,14 @@ const CustomersView = () => {
   });
   return (
     <div className="flex-1 overflow-y-auto bg-stone-50/30 p-7">
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <KpiCard label={t('total_customers')} value={totalCustomers.toLocaleString()} icon={Users} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label={t('loyalty_members')} value={loyaltyMembers.toLocaleString()} icon={Star} accent="bg-amber-50 text-amber-700" />
         <KpiCard label={t('avg_visit')} value={`${fmt(avgVisitValue)}`} icon={Receipt} accent="bg-rose-50 text-rose-700" />
         <KpiCard label={t('retention')} value={`${retentionPct}%`} icon={TrendingUp} accent="bg-sky-50 text-sky-700" />
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
         {[
           { ...tierCounts[0], gradient: 'from-stone-700 to-stone-900' },
           { ...tierCounts[1], gradient: 'from-amber-400 to-amber-600' },
@@ -1856,6 +1878,7 @@ const CustomersView = () => {
           </div>
           <button onClick={exportCustomers} className="text-xs text-emerald-700 font-medium flex items-center gap-1">{t('view_all')} <ChevronRight size={13} /></button>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
@@ -1899,6 +1922,7 @@ const CustomersView = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.name}>
@@ -1941,14 +1965,14 @@ const StoresView = () => {
   const avgTransaction = report?.totals?.orders ? Math.round(report.totals.revenue / report.totals.orders) : 0;
   return (
     <div className="flex-1 overflow-y-auto bg-stone-50/30 p-7">
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <KpiCard label={t('total_stores')} value={String(STORES.length)} icon={Store} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label={t('combined_revenue')} value={`${fmtShort(combinedRevenue)} FCFA`} icon={TrendingUp} accent="bg-amber-50 text-amber-700" />
         <KpiCard label={t('active_cashiers')} value={String(activeCashiers)} icon={UserCircle2} accent="bg-rose-50 text-rose-700" />
         <KpiCard label={t('avg_transaction')} value={`${fmt(avgTransaction)}`} icon={Receipt} accent="bg-sky-50 text-sky-700" />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
         {STORES.map(store => (
           <div key={store.id} className="bg-white rounded-2xl p-5 border border-stone-200/80 hover:shadow-lg hover:shadow-stone-900/5 transition-all">
             <div className="flex items-start justify-between mb-4">
@@ -2211,7 +2235,7 @@ const ReportsView = () => {
       </div>
       </>}
 
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
         <div className="bg-white rounded-2xl p-5 border border-stone-200/80">
           <FileText size={20} className="text-emerald-700 mb-3" />
           <h3 className="font-serif text-base text-stone-900 mb-1" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('sales_report')}</h3>
@@ -2359,6 +2383,14 @@ const SettingsView = () => {
   const { user: me } = useAuth();
   const [savedSnapshot, setSavedSnapshot] = useState(null);
   const [userModal, setUserModal] = useState(false);
+
+  // While the admin is looking at the Users tab, keep the online indicators
+  // fresh — heartbeats land server-side every 45s, so poll a bit faster.
+  useEffect(() => {
+    if (tab !== 'users' || !online) return;
+    const id = setInterval(() => { refresh(); }, 20000);
+    return () => clearInterval(id);
+  }, [tab, online, refresh]);
   const [editingUser, setEditingUser] = useState(null);
   const [pinTarget, setPinTarget] = useState(null);   // user whose PIN is being reset
   const [newPin, setNewPin] = useState('');
@@ -2428,17 +2460,17 @@ const SettingsView = () => {
   ];
 
   return (
-    <div className="flex-1 flex overflow-hidden bg-stone-50/30">
+    <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden bg-stone-50/30">
       {/* Settings sub-nav */}
-      <aside className="w-56 border-r border-stone-200/60 p-4 overflow-y-auto bg-white/50 flex-shrink-0">
-        <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium px-2 mb-2">{t('settings')}</div>
-        <nav className="space-y-0.5">
+      <aside className="w-full lg:w-56 border-b lg:border-b-0 lg:border-r border-stone-200/60 p-3 lg:p-4 lg:overflow-y-auto bg-white/50 flex-shrink-0">
+        <div className="hidden lg:block text-[10px] uppercase tracking-widest text-stone-500 font-medium px-2 mb-2">{t('settings')}</div>
+        <nav className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible" style={{ scrollbarWidth: 'none' }}>
           {tabs.map(tb => {
             const Icon = tb.icon;
             const active = tab === tb.id;
             return (
               <button key={tb.id} onClick={() => setTab(tb.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+                className={`lg:w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0 ${
                   active ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'
                 }`}>
                 <Icon size={15} strokeWidth={1.8} /><span className="font-medium">{tb.label}</span>
@@ -2448,7 +2480,7 @@ const SettingsView = () => {
         </nav>
       </aside>
 
-      <div className="flex-1 overflow-y-auto p-7">
+      <div className="flex-1 lg:overflow-y-auto p-4 sm:p-7">
         <div className="max-w-3xl space-y-5">
           {tab === 'general' && (
             <>
@@ -2605,17 +2637,24 @@ const SettingsView = () => {
                   <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('s_users')}</h3>
                   <p className="text-xs text-stone-500 mt-0.5">Team members and their permissions</p>
                 </div>
-                <button onClick={() => { setEditingUser(null); setUserModal(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
-                  <Plus size={13} /> Add user
-                </button>
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                    {users.filter(u => u.online).length} online
+                  </span>
+                  <button onClick={() => { setEditingUser(null); setUserModal(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
+                    <Plus size={13} /> Add user
+                  </button>
+                </div>
               </div>
+              <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
                     <th className="px-6 py-3">{t('user')}</th>
                     <th className="px-3 py-3">{t('role')}</th>
                     <th className="px-3 py-3">{t('stores')}</th>
-                    <th className="px-3 py-3">{t('last_active')}</th>
+                    <th className="px-3 py-3">Status</th>
                     <th className="px-6 py-3"></th>
                   </tr>
                 </thead>
@@ -2643,7 +2682,14 @@ const SettingsView = () => {
                         </span>
                       </td>
                       <td className="px-3 py-3 text-sm text-stone-700">{u.store}</td>
-                      <td className="px-3 py-3 text-xs text-stone-500">{u.lastActive}</td>
+                      <td className="px-3 py-3">
+                        <span className="inline-flex items-center gap-1.5 text-xs">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${u.online ? 'bg-emerald-500 animate-pulse' : 'bg-stone-300'}`} />
+                          {u.online
+                            ? <span className="text-emerald-700 font-medium">Online</span>
+                            : <span className="text-stone-500">{relativeLastActive(u.lastActive)}</span>}
+                        </span>
+                      </td>
                       <td className="px-6 py-3 text-right whitespace-nowrap">
                         <button onClick={() => { setEditingUser(u); setUserModal(true); }} className="text-xs text-stone-500 hover:text-stone-900">{t('edit')}</button>
                         <button onClick={() => resetPin(u)} className="text-xs text-stone-500 hover:text-emerald-700 ml-3">Reset PIN</button>
@@ -2655,6 +2701,7 @@ const SettingsView = () => {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
@@ -2833,6 +2880,7 @@ const ShiftsView = () => {
           <h3 className="font-semibold text-stone-900">{isManager ? 'Shift history' : 'Your shift history'}</h3>
           <button onClick={exportTimesheet} className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5"><Download size={13} /> Export CSV</button>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-xs text-stone-500 bg-stone-50/60">
             <tr>
@@ -2868,6 +2916,7 @@ const ShiftsView = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
@@ -2989,7 +3038,7 @@ const ExpensesView = () => {
       {can.expenses && (
         <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
           <h3 className="font-serif text-lg text-stone-900 mb-4" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Record an expense</h3>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div><label className="block text-[11px] text-stone-500 mb-1">Date</label>
               <input type="date" value={form.date} max={today} onChange={set('date')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
             <div><label className="block text-[11px] text-stone-500 mb-1">Category</label>
@@ -3094,7 +3143,7 @@ function DialloPOSShell({ titles }) {
       `}</style>
 
       {/* Mobile backdrop when the sidebar is open */}
-      {mobileNav && <div onClick={() => setMobileNav(false)} className="fixed inset-0 bg-stone-900/40 z-30 md:hidden" />}
+      {mobileNav && <div onClick={() => setMobileNav(false)} className="fixed inset-0 bg-stone-900/40 z-30 lg:hidden" />}
 
       <Sidebar view={view} setView={go} mobileNav={mobileNav} closeNav={() => setMobileNav(false)} />
       <div className="flex-1 flex flex-col overflow-hidden">

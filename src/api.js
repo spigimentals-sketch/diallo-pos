@@ -42,6 +42,7 @@ export const api = {
   getStaff: () => req('GET', '/auth/staff'),
   login: (username, pin) => req('POST', '/auth/login', { username, pin }),
   me: () => req('GET', '/auth/me'),
+  heartbeat: () => req('POST', '/auth/heartbeat'),
   setUserPin: (id, pin) => req('PUT', `/users/${id}/pin`, { pin }),
   // products
   getProducts: () => req('GET', '/products'),

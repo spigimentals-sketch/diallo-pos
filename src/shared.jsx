@@ -45,7 +45,11 @@ const CODE39_PATTERNS = {
   '/': 'nwnwnnnwn', '+': 'nwnnnwnwn', '%': 'nnnwnwnwn', '*': 'nwnnwnwnn',
 };
 
-export function createBarcodeDataUrl(text) {
+// Renders a price-tag label: optional item name on top, the scannable CODE39
+// barcode (always encoding just the SKU, so hardware scanners still match it
+// against p.sku), the SKU as human-readable text, and an optional price at
+// the bottom. Only the bars encode data — name/price are printed, not encoded.
+export function createBarcodeDataUrl(text, { name, price } = {}) {
   const normalized = text.trim().toUpperCase();
   if (!normalized) throw new Error('SKU is required to generate a barcode');
   const codes = [`*`, ...normalized.split(''), `*`];
@@ -62,8 +66,25 @@ export function createBarcodeDataUrl(text) {
     return sum + pattern.split('').reduce((acc, digit) => acc + (digit === 'w' ? 3 : 1), 0);
   }, 0) + (patternStrings.length - 1) * charGap;
 
-  const width = totalModules * moduleWidth + quietZone * 2;
-  const height = barHeight + 32;
+  const barsWidth = totalModules * moduleWidth + quietZone * 2;
+  const nameText = (name || '').trim();
+  const priceText = price != null && price !== '' ? `${new Intl.NumberFormat('fr-FR').format(Math.round(Number(price)))} FCFA` : '';
+
+  const nameFont = 'bold 20px Arial, sans-serif';
+  const priceFont = 'bold 22px Arial, sans-serif';
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = nameFont;
+  const nameWidth = nameText ? measure.measureText(nameText).width : 0;
+  measure.font = priceFont;
+  const priceWidth = priceText ? measure.measureText(priceText).width : 0;
+
+  const width = Math.ceil(Math.max(barsWidth, nameWidth + 24, priceWidth + 24));
+  const nameBlockHeight = nameText ? 34 : 0;
+  const priceBlockHeight = priceText ? 36 : 0;
+  const skuBlockHeight = 32;
+  const topPad = 16;
+  const height = topPad + nameBlockHeight + barHeight + skuBlockHeight + priceBlockHeight + 12;
+
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -71,22 +92,41 @@ export function createBarcodeDataUrl(text) {
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = 'black';
+  ctx.textAlign = 'center';
 
-  let x = quietZone;
+  let y = topPad;
+  if (nameText) {
+    ctx.font = nameFont;
+    y += 20;
+    ctx.fillText(nameText, width / 2, y);
+    y += nameBlockHeight - 20;
+  }
+
+  const barsTop = y;
+  let x = (width - barsWidth) / 2 + quietZone;
   patternStrings.forEach((pattern, index) => {
     for (let i = 0; i < pattern.length; i += 1) {
       const w = pattern[i] === 'w' ? moduleWidth * 3 : moduleWidth;
-      if (i % 2 === 0) ctx.fillRect(x, 0, w, barHeight);
+      if (i % 2 === 0) ctx.fillRect(x, barsTop, w, barHeight);
       x += w;
     }
     if (index < patternStrings.length - 1) {
       x += charGap;
     }
   });
+  y += barHeight;
 
   ctx.font = '16px Arial, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(normalized, width / 2, barHeight + 22);
+  y += 22;
+  ctx.fillText(normalized, width / 2, y);
+  y += skuBlockHeight - 22;
+
+  if (priceText) {
+    ctx.font = priceFont;
+    y += 24;
+    ctx.fillText(priceText, width / 2, y);
+  }
+
   return canvas.toDataURL('image/png');
 }
 
@@ -256,13 +296,13 @@ export function ProductForm({ open, onClose, initial }) {
       return;
     }
     try {
-      const dataUrl = createBarcodeDataUrl(form.sku);
+      const dataUrl = createBarcodeDataUrl(form.sku, { name: form.name, price: form.price });
       const popup = window.open('', '_blank');
       if (!popup) {
         toast('Unable to open print window. Please allow popups and try again.', 'error');
         return;
       }
-      popup.document.write(`<!doctype html><html><head><title>Print barcode</title><style>body{margin:0;padding:24px;font-family:Arial,sans-serif;color:#111;background:#fff} .label{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh} .label img{max-width:100%;height:auto;}</style></head><body><div class="label"><img src="${dataUrl}" alt="Barcode" /><div style="margin-top:16px;font-size:14px;letter-spacing:0.05em;">${form.sku}</div></div><script>window.onload = () => { window.print(); };</script></body></html>`);
+      popup.document.write(`<!doctype html><html><head><title>Print barcode</title><style>body{margin:0;padding:24px;font-family:Arial,sans-serif;color:#111;background:#fff} .label{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh} .label img{max-width:100%;height:auto;}</style></head><body><div class="label"><img src="${dataUrl}" alt="Barcode" /></div><script>window.onload = () => { window.print(); };</script></body></html>`);
       popup.document.close();
     } catch (error) {
       toast(error.message || 'Failed to generate barcode.', 'error');
@@ -520,6 +560,14 @@ export function AuthProvider({ children }) {
       .catch(() => { setToken(null); setUser(null); })
       .finally(() => setChecking(false));
   }, []);
+
+  // While signed in, ping the backend every 45s so the admin's "who's online"
+  // list (Settings > Users) knows this account is still active.
+  useEffect(() => {
+    if (!user) return;
+    const id = setInterval(() => { api.heartbeat().catch(() => {}); }, 45000);
+    return () => clearInterval(id);
+  }, [user]);
 
   const login = async (username, pin) => {
     const { token, user } = await api.login(username, pin);
