@@ -51,9 +51,14 @@ const DEFAULT_SETTINGS = {
 };
 
 export function seedIfEmpty() {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM settings').get().n;
-  if (count > 0) {
-    console.log('• Database already seeded — skipping.');
+  // Decide "first run" by whether the database has ever been initialized, using
+  // the settings row (which is never removed by the Clear-all-data feature).
+  // Using product count here was unsafe: clearing data empties products, which
+  // would wrongly trigger a re-seed and crash on the existing settings row.
+  const initialized = db.prepare("SELECT COUNT(*) AS n FROM settings").get().n > 0
+    || db.prepare("SELECT COUNT(*) AS n FROM users").get().n > 0;
+  if (initialized) {
+    console.log('• Database already initialized — skipping seed.');
     return;
   }
   console.log('• Seeding database…');
@@ -84,7 +89,7 @@ export function seedIfEmpty() {
     EMPLOYEES.forEach(e => eIns.run(e));
 
     // Shifts start empty — created when real user accounts clock in.
-    db.prepare('INSERT INTO settings (id,json) VALUES (1,@json)').run({ json: JSON.stringify(DEFAULT_SETTINGS) });
+    db.prepare('INSERT OR IGNORE INTO settings (id,json) VALUES (1,@json)').run({ json: JSON.stringify(DEFAULT_SETTINGS) });
   });
   tx();
   console.log('• Seed complete.');

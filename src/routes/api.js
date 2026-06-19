@@ -322,14 +322,20 @@ r.delete('/expenses/:id', requireAuth, requireRole('admin', 'manager', 'accounta
   res.json({ ok: true });
 }));
 
-// Admin only: wipe transactional data so the shop starts counting from scratch.
-// Clears inventory, sales, stock movements, purchase orders and customers.
-// Keeps user accounts, settings, suppliers and recorded expenses.
+// Admin only: wipe all demo/operational data so the shop starts from scratch.
+// Clears inventory, sales, stock movements, purchase orders, customers,
+// suppliers, expenses, shifts and employees. Every other login account is
+// deleted too — only the admin account used to run the reset survives.
+// Settings (business profile) are left untouched.
 r.post('/maintenance/clear-data', requireAuth, requireRole('admin'), h((req, res) => {
   const tx = db.transaction(() => {
-    for (const tbl of ['order_items', 'orders', 'stock_movements', 'purchase_orders', 'products', 'customers']) {
+    for (const tbl of [
+      'order_items', 'orders', 'stock_movements', 'purchase_orders',
+      'products', 'customers', 'suppliers', 'expenses', 'shifts', 'employees',
+    ]) {
       db.prepare(`DELETE FROM ${tbl}`).run();
     }
+    db.prepare('DELETE FROM users WHERE id != ?').run(req.user.id);
   });
   tx();
   res.json({ ok: true });
