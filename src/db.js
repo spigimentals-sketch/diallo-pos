@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS products (
   name_fr   TEXT,
   category  TEXT NOT NULL,
   price     INTEGER NOT NULL,
+  cost      INTEGER NOT NULL DEFAULT 0,
+  discount  INTEGER NOT NULL DEFAULT 0,
   stock     INTEGER NOT NULL DEFAULT 0,
   sku       TEXT UNIQUE NOT NULL,
   emoji     TEXT DEFAULT '📦',
@@ -176,12 +178,25 @@ CREATE TABLE IF NOT EXISTS order_items (
   name      TEXT,
   sku       TEXT,
   price     INTEGER,
+  cost      INTEGER DEFAULT 0,
   qty       INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS settings (
   id   INTEGER PRIMARY KEY CHECK (id = 1),
   json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS expenses (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  date      TEXT NOT NULL,
+  category  TEXT,
+  payee     TEXT,
+  amount    INTEGER NOT NULL DEFAULT 0,
+  method    TEXT,
+  note      TEXT,
+  createdBy TEXT,
+  createdAt TEXT
 );
 `);
 
@@ -206,6 +221,17 @@ try {
   if (!ucols.includes('username')) db.exec('ALTER TABLE users ADD COLUMN username TEXT');
 } catch (e) {
   console.warn('users-column migration skipped:', e.message);
+}
+
+// Ensure cost columns exist for margin tracking on older databases.
+try {
+  const pcols = db.prepare('PRAGMA table_info(products)').all().map(c => c.name);
+  if (!pcols.includes('cost')) db.exec('ALTER TABLE products ADD COLUMN cost INTEGER NOT NULL DEFAULT 0');
+  if (!pcols.includes('discount')) db.exec('ALTER TABLE products ADD COLUMN discount INTEGER NOT NULL DEFAULT 0');
+  const ocols = db.prepare('PRAGMA table_info(order_items)').all().map(c => c.name);
+  if (!ocols.includes('cost')) db.exec('ALTER TABLE order_items ADD COLUMN cost INTEGER DEFAULT 0');
+} catch (e) {
+  console.warn('cost-column migration skipped:', e.message);
 }
 
 export default db;

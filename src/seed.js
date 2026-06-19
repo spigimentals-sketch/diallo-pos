@@ -51,7 +51,7 @@ const DEFAULT_SETTINGS = {
 };
 
 export function seedIfEmpty() {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM products').get().n;
+  const count = db.prepare('SELECT COUNT(*) AS n FROM settings').get().n;
   if (count > 0) {
     console.log('• Database already seeded — skipping.');
     return;

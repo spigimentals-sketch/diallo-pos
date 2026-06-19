@@ -78,11 +78,11 @@ r.get('/products', h((req, res) => {
 }));
 
 r.post('/products', h((req, res) => {
-  const { name, name_fr = '', category, price, stock = 0, sku, emoji = '📦', image = null } = req.body;
+  const { name, name_fr = '', category, price, cost = 0, discount = 0, stock = 0, sku, emoji = '📦', image = null } = req.body;
   if (!name || !category || price == null || !sku) throw new Error('name, category, price and sku are required');
   const info = db.prepare(
-    'INSERT INTO products (name,name_fr,category,price,stock,sku,emoji,image) VALUES (?,?,?,?,?,?,?,?)'
-  ).run(name, name_fr, category, price, stock, sku, emoji, image);
+    'INSERT INTO products (name,name_fr,category,price,cost,discount,stock,sku,emoji,image) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(name, name_fr, category, price, cost, discount, stock, sku, emoji, image);
   res.status(201).json(db.prepare('SELECT * FROM products WHERE id=?').get(info.lastInsertRowid));
 }));
 
@@ -90,8 +90,8 @@ r.put('/products/:id', h((req, res) => {
   const cur = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!cur) throw new Error('product not found');
   const n = { ...cur, ...req.body };
-  db.prepare('UPDATE products SET name=?,name_fr=?,category=?,price=?,stock=?,sku=?,emoji=?,image=? WHERE id=?')
-    .run(n.name, n.name_fr, n.category, n.price, n.stock, n.sku, n.emoji, n.image ?? null, req.params.id);
+  db.prepare('UPDATE products SET name=?,name_fr=?,category=?,price=?,cost=?,discount=?,stock=?,sku=?,emoji=?,image=? WHERE id=?')
+    .run(n.name, n.name_fr, n.category, n.price, n.cost ?? 0, n.discount ?? 0, n.stock, n.sku, n.emoji, n.image ?? null, req.params.id);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
 }));
 
@@ -257,13 +257,15 @@ r.post('/orders', h((req, res) => {
     ).run(invoiceNo, customerId, subtotal, Math.round(discount), Math.round(tva), total, method, cashier, createdAt);
     const orderId = orderInfo.lastInsertRowid;
 
-    const itemIns = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,qty) VALUES (?,?,?,?,?,?)');
+    const itemIns = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty) VALUES (?,?,?,?,?,?,?)');
     const stockUpd = db.prepare('UPDATE products SET stock = MAX(0, stock - ?) WHERE id=?');
     const moveIns = db.prepare('INSERT INTO stock_movements (productName,type,qty,source,date,user) VALUES (?,?,?,?,?,?)');
+    const costOf = db.prepare('SELECT cost FROM products WHERE id=?');
     const dateStr = createdAt.slice(0, 16).replace('T', ' ');
 
     for (const it of items) {
-      itemIns.run(orderId, it.id, it.name, it.sku, it.price, it.qty);
+      const unitCost = it.id ? (costOf.get(it.id)?.cost || 0) : 0;
+      itemIns.run(orderId, it.id, it.name, it.sku, it.price, unitCost, it.qty);
       if (it.id) {
         stockUpd.run(it.qty, it.id);
         moveIns.run(it.name, 'out', it.qty, invoiceNo, dateStr, cashier || 'POS');
@@ -300,6 +302,39 @@ r.put('/settings', h((req, res) => {
   res.json(req.body);
 }));
 
+// ---------------- EXPENSES ----------------
+// Recorded by accountants/managers/admins. Read by anyone who can see finance.
+r.get('/expenses', requireAuth, h((req, res) => {
+  res.json(db.prepare('SELECT * FROM expenses ORDER BY date DESC, id DESC').all());
+}));
+
+r.post('/expenses', requireAuth, requireRole('admin', 'manager', 'accountant'), h((req, res) => {
+  const { date, category = '', payee = '', amount, method = 'cash', note = '' } = req.body || {};
+  if (!date || amount == null) throw new Error('date and amount are required');
+  const info = db.prepare(
+    'INSERT INTO expenses (date,category,payee,amount,method,note,createdBy,createdAt) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(date, category, payee, Math.round(Number(amount)), method, note, req.user.name, new Date().toISOString());
+  res.status(201).json(db.prepare('SELECT * FROM expenses WHERE id=?').get(info.lastInsertRowid));
+}));
+
+r.delete('/expenses/:id', requireAuth, requireRole('admin', 'manager', 'accountant'), h((req, res) => {
+  db.prepare('DELETE FROM expenses WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+}));
+
+// Admin only: wipe transactional data so the shop starts counting from scratch.
+// Clears inventory, sales, stock movements, purchase orders and customers.
+// Keeps user accounts, settings, suppliers and recorded expenses.
+r.post('/maintenance/clear-data', requireAuth, requireRole('admin'), h((req, res) => {
+  const tx = db.transaction(() => {
+    for (const tbl of ['order_items', 'orders', 'stock_movements', 'purchase_orders', 'products', 'customers']) {
+      db.prepare(`DELETE FROM ${tbl}`).run();
+    }
+  });
+  tx();
+  res.json({ ok: true });
+}));
+
 // ---------------- REPORTS ----------------
 // Simple aggregations the front-end can render or download.
 r.get('/reports/sales', h((req, res) => {
@@ -312,10 +347,92 @@ r.get('/reports/sales', h((req, res) => {
 }));
 
 r.get('/reports/inventory', h((req, res) => {
-  const products = db.prepare('SELECT name,sku,category,price,stock FROM products ORDER BY stock ASC').all();
+  const products = db.prepare('SELECT name,sku,category,price,cost,stock FROM products ORDER BY stock ASC').all();
   const value = products.reduce((s, p) => s + p.price * p.stock, 0);
+  const costValue = products.reduce((s, p) => s + (p.cost || 0) * p.stock, 0);
   const low = products.filter(p => p.stock < 10).length;
-  res.json({ products, stockValue: value, lowStock: low, totalSkus: products.length });
+  res.json({ products, stockValue: value, stockCostValue: costValue, lowStock: low, totalSkus: products.length });
+}));
+
+// ---- Accounting: a date-range report powering exports, TVA and margin ----
+// Query params: from=YYYY-MM-DD & to=YYYY-MM-DD (inclusive). Defaults to today.
+const dayBounds = (from, to) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const f = (from || today) + ' 00:00:00';
+  const t = (to || from || today) + ' 23:59:59';
+  return { f, t };
+};
+
+r.get('/reports/range', h((req, res) => {
+  const { f, t } = dayBounds(req.query.from, req.query.to);
+  const where = 'WHERE createdAt >= ? AND createdAt <= ?';
+
+  const totals = db.prepare(
+    `SELECT COUNT(*) AS orders,
+            COALESCE(SUM(subtotal),0) AS subtotal,
+            COALESCE(SUM(discount),0) AS discount,
+            COALESCE(SUM(tva),0) AS tva,
+            COALESCE(SUM(total),0) AS revenue
+     FROM orders ${where}`
+  ).get(f, t);
+
+  const byMethod = db.prepare(
+    `SELECT method, COUNT(*) AS orders, COALESCE(SUM(total),0) AS amount
+     FROM orders ${where} GROUP BY method`
+  ).all(f, t);
+
+  const daily = db.prepare(
+    `SELECT substr(createdAt,1,10) AS day, COUNT(*) AS orders,
+            COALESCE(SUM(total),0) AS sales, COALESCE(SUM(tva),0) AS tva
+     FROM orders ${where} GROUP BY day ORDER BY day`
+  ).all(f, t);
+
+  // Margin from order line items (cost snapshotted at sale time).
+  const margin = db.prepare(
+    `SELECT COALESCE(SUM(oi.price*oi.qty),0) AS itemRevenue,
+            COALESCE(SUM(oi.cost*oi.qty),0) AS itemCost
+     FROM order_items oi JOIN orders o ON o.id = oi.orderId ${where.replace('createdAt', 'o.createdAt')}`
+  ).get(f, t);
+
+  const orders = db.prepare(
+    `SELECT invoiceNo, createdAt, cashier, method, subtotal, discount, tva, total
+     FROM orders ${where} ORDER BY createdAt`
+  ).all(f, t);
+
+  const grossProfit = (margin.itemRevenue || 0) - (margin.itemCost || 0);
+  const marginPct = margin.itemRevenue ? (grossProfit / margin.itemRevenue) * 100 : 0;
+
+  res.json({
+    from: req.query.from || new Date().toISOString().slice(0, 10),
+    to: req.query.to || req.query.from || new Date().toISOString().slice(0, 10),
+    totals, byMethod, daily,
+    margin: { revenue: margin.itemRevenue, cost: margin.itemCost, grossProfit, marginPct },
+    orders,
+  });
+}));
+
+// Daily Z-report: one day's close-out summary + expected cash drawer.
+r.get('/reports/z', h((req, res) => {
+  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  const f = date + ' 00:00:00', t = date + ' 23:59:59';
+  const where = 'WHERE createdAt >= ? AND createdAt <= ?';
+  const totals = db.prepare(
+    `SELECT COUNT(*) AS orders, COALESCE(SUM(subtotal),0) AS subtotal,
+            COALESCE(SUM(discount),0) AS discount, COALESCE(SUM(tva),0) AS tva,
+            COALESCE(SUM(total),0) AS revenue FROM orders ${where}`
+  ).get(f, t);
+  const byMethod = db.prepare(
+    `SELECT method, COUNT(*) AS orders, COALESCE(SUM(total),0) AS amount
+     FROM orders ${where} GROUP BY method`
+  ).all(f, t);
+  const margin = db.prepare(
+    `SELECT COALESCE(SUM(oi.price*oi.qty),0) AS itemRevenue, COALESCE(SUM(oi.cost*oi.qty),0) AS itemCost
+     FROM order_items oi JOIN orders o ON o.id = oi.orderId WHERE o.createdAt >= ? AND o.createdAt <= ?`
+  ).get(f, t);
+  const cashDrawer = (byMethod.find(m => m.method === 'cash')?.amount) || 0;
+  const grossProfit = (margin.itemRevenue || 0) - (margin.itemCost || 0);
+  res.json({ date, totals, byMethod, expectedCash: cashDrawer,
+    margin: { revenue: margin.itemRevenue, cost: margin.itemCost, grossProfit } });
 }));
 
 export default r;
