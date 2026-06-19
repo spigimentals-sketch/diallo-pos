@@ -1,0 +1,3114 @@
+// @ts-nocheck
+import React, { useState, useMemo, useContext, createContext, useEffect, useRef } from 'react';
+import api, { imageUrl } from './api.js';
+import {
+  ToastProvider, useToast, DataProvider, useData, Modal,
+  ProductForm, SupplierForm, UserForm, POForm,
+  downloadCsv, downloadJson, PrimaryBtn, GhostBtn,
+  AuthProvider, useAuth, LoginScreen,
+} from './shared.jsx';
+import {
+  ShoppingCart, Package, Users, Store, BarChart3, Settings,
+  Search, Scan, Plus, Minus, X, CreditCard, Banknote, Smartphone,
+  Bell, TrendingUp, AlertTriangle, CheckCircle2,
+  Gift, Receipt, FileText, ChevronRight, Download,
+  Apple, Beef, Milk, Cookie, Wine, Sparkles, Coffee, Wheat,
+  ArrowUpRight, ArrowDownRight, Calendar, Star, Award, Zap,
+  Building2, MapPin, Trash2, LayoutGrid, LogOut, HelpCircle,
+  Clock, UserCircle2, Printer, Wallet, Truck, ClipboardList,
+  ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
+  Globe, Building, Hash, Percent, ShieldCheck, Monitor, BellRing,
+  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu
+} from 'lucide-react';
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+
+// ============ TRANSLATIONS ============
+const TRANSLATIONS = {
+  en: {
+    // Nav
+    checkout: 'Checkout', dashboard: 'Dashboard', inventory: 'Inventory',
+    shifts: 'Shifts',
+    customers: 'Customers', stores: 'Stores', reports: 'Reports', expenses: 'Expenses',
+    settings: 'Settings', help: 'Help',
+    // Subtitles
+    sub_pos: 'New order · Cashier station 03',
+    sub_dash: 'Overview of all your stores',
+    sub_inv: '2,847 products · 14 alerts',
+    sub_cust: '1,248 customers · 864 loyalty members',
+    sub_stores: '4 active locations',
+    sub_reports: 'TVA-compliant exports for DGI',
+    sub_settings: 'Configure your business and POS',
+    // POS
+    search_products: 'Search products or SKU...',
+    scan: 'Scan', all_items: 'All Items',
+    cosmetics: 'Cosmetics', wines: 'Wines', whiskey: 'Whiskey',
+    school_materials: 'School materials', perfumes: 'Perfumes', icecream: 'Ice cream',
+    shawarma: 'Shawarma',
+    customer: 'Customer', add_customer: 'Add customer',
+    order: 'Order', items: 'items', clear: 'Clear',
+    cart_empty: 'Cart is empty', tap_to_add: 'Tap products to add',
+    subtotal: 'Subtotal', discount: 'discount', total: 'Total',
+    earns: 'Earns', pts: 'pts',
+    cash: 'Cash', card: 'Card', mobile: 'Mobile',
+    complete_payment: 'Complete Payment', payment_received: 'Payment received',
+    total_paid: 'Total paid', method: 'Method', points_earned: 'Points earned',
+    print: 'Print', new_order: 'New order', view_receipt: 'View receipt',
+    in_stock: 'in stock', low: 'Low',
+    // KPIs / Dashboard
+    todays_sales: "Today's Sales", orders: 'Orders',
+    low_stock_items: 'Low stock items', sales_this_week: 'Sales this week',
+    revenue_all: 'Revenue across all stores',
+    by_category: 'By category', share_of_sales: 'Share of sales',
+    top_products: 'Top selling products', best_perf: 'Best performers this week',
+    achievement: 'Achievement', weekly_target: 'Weekly target reached',
+    weekly_target_desc: 'All four stores have exceeded their weekly sales target for the third week in a row.',
+    progress: 'Progress', view_report: 'View report',
+    // Inventory tabs
+    products: 'Products', suppliers: 'Suppliers',
+    purchase_orders: 'Purchase Orders', stock_movements: 'Stock Movements',
+    total_skus: 'Total SKUs', stock_value: 'Stock value',
+    out_of_stock: 'Out of stock', low_stock: 'Low stock',
+    all: 'All', export: 'Export', add_product: 'Add product',
+    product: 'Product', category: 'Category', price: 'Price',
+    stock: 'Stock', status: 'Status', edit: 'Edit',
+    // Suppliers
+    add_supplier: 'Add supplier', supplier: 'Supplier',
+    contact: 'Contact', products_count: 'Products', last_order: 'Last order',
+    active: 'Active', inactive: 'Inactive',
+    // Purchase Orders
+    create_po: 'Create PO', po_number: 'PO Number',
+    order_date: 'Date', total_amount: 'Total', draft: 'Draft',
+    sent: 'Sent', in_transit: 'In transit', received: 'Received',
+    cancelled: 'Cancelled',
+    // Stock movements
+    stock_in: 'Stock in', stock_out: 'Stock out', adjustment: 'Adjustment',
+    type: 'Type', quantity: 'Qty', source: 'Source',
+    date_time: 'Date & time', user: 'User',
+    // Customers
+    total_customers: 'Total Customers', loyalty_members: 'Loyalty Members',
+    avg_visit: 'Avg. Visit Value', retention: 'Retention',
+    tier: 'Tier', points: 'Points', visits: 'Visits',
+    lifetime_value: 'Lifetime Value', view_all: 'View all',
+    recent_customers: 'Recent customers', top_spenders: 'Top spenders this month',
+    // Stores
+    total_stores: 'Total Stores', combined_revenue: 'Combined Revenue',
+    active_cashiers: 'Active Cashiers', avg_transaction: 'Avg. Transaction',
+    open: 'Open', monthly: 'Monthly', growth: 'Growth', healthy: 'Healthy',
+    store_comparison: 'Store comparison', monthly_by_location: 'Monthly revenue by location',
+    // Reports
+    sales_report: 'Sales Report', sales_report_desc: 'Daily, weekly, and monthly breakdowns',
+    tva_einv: 'TVA / e-Invoice', tva_einv_desc: 'DGI-compliant electronic invoicing',
+    inv_report: 'Inventory Report', inv_report_desc: 'Stock levels, movement, and valuation',
+    generate: 'Generate', export_pdf: 'Export PDF',
+    revenue_trend: 'Revenue & orders trend', past_7_days: 'Past 7 days, all stores',
+    integrations: 'Integrations', connected: 'Connected',
+    // Settings tabs
+    s_general: 'General', s_business: 'Business', s_receipt: 'Receipt',
+    s_tax: 'Tax', s_payments: 'Payments', s_hardware: 'Hardware',
+    s_users: 'Users', s_notifications: 'Notifications',
+    save_changes: 'Save changes', cancel: 'Cancel',
+    business_name: 'Business name', currency: 'Currency',
+    language: 'Language', timezone: 'Timezone', date_format: 'Date format',
+    address: 'Address', phone: 'Phone', email: 'Email', website: 'Website',
+    rccm: 'RCCM number', niu: 'NIU (Tax ID)',
+    receipt_header: 'Receipt header', receipt_footer: 'Receipt footer',
+    paper_width: 'Paper width', show_logo: 'Show logo on receipt',
+    show_qr: 'Show QR code', show_loyalty: 'Show loyalty points',
+    tva_rate: 'TVA rate', tva_included: 'Prices include TVA',
+    tax_id_print: 'Print tax ID on receipts',
+    accept_cash: 'Accept cash', accept_card: 'Accept cards',
+    accept_mobile: 'Accept mobile money',
+    barcode_scanner: 'Barcode scanner', receipt_printer: 'Receipt printer',
+    cash_drawer: 'Cash drawer', customer_display: 'Customer display',
+    role: 'Role', permissions: 'Permissions', last_active: 'Last active',
+    admin: 'Admin', manager: 'Manager', cashier: 'Cashier',
+    low_stock_threshold: 'Low stock threshold',
+    daily_summary: 'Daily summary email',
+    weekly_summary: 'Weekly performance report',
+    payment_alerts: 'Failed payment alerts',
+    // Receipt modal
+    receipt: 'Receipt', original: 'Original',
+    cashier_label: 'Cashier', station_label: 'Station', invoice: 'Invoice',
+    items_label: 'Items', qty_label: 'Qty', price_label: 'Price',
+    paid: 'Paid', change: 'Change',
+    thank_you: 'Thank you for shopping with us',
+    visit_again: 'See you soon!',
+    close: 'Close', email_receipt: 'Email receipt',
+  },
+  fr: {
+    checkout: 'Caisse', dashboard: 'Tableau de bord', inventory: 'Inventaire',
+    shifts: 'Équipes',
+    customers: 'Clients', stores: 'Magasins', reports: 'Rapports', expenses: 'Dépenses',
+    settings: 'Paramètres', help: 'Aide',
+    sub_pos: 'Nouvelle commande · Caisse 03',
+    sub_dash: 'Vue d\'ensemble de vos magasins',
+    sub_inv: '2 847 produits · 14 alertes',
+    sub_cust: '1 248 clients · 864 membres fidélité',
+    sub_stores: '4 emplacements actifs',
+    sub_reports: 'Exports conformes DGI',
+    sub_settings: 'Configurez votre entreprise et la caisse',
+    search_products: 'Rechercher produit ou SKU...',
+    scan: 'Scanner', all_items: 'Tous',
+    cosmetics: 'Cosmétiques', wines: 'Vins', whiskey: 'Whisky',
+    school_materials: 'Fournitures scolaires', perfumes: 'Parfums', icecream: 'Glaces',
+    shawarma: 'Shawarma',
+    customer: 'Client', add_customer: 'Ajouter client',
+    order: 'Commande', items: 'articles', clear: 'Vider',
+    cart_empty: 'Panier vide', tap_to_add: 'Touchez un produit pour l\'ajouter',
+    subtotal: 'Sous-total', discount: 'remise', total: 'Total',
+    earns: 'Gagne', pts: 'pts',
+    cash: 'Espèces', card: 'Carte', mobile: 'Mobile',
+    complete_payment: 'Valider le paiement', payment_received: 'Paiement reçu',
+    total_paid: 'Total payé', method: 'Mode', points_earned: 'Points gagnés',
+    print: 'Imprimer', new_order: 'Nouvelle commande', view_receipt: 'Voir le reçu',
+    in_stock: 'en stock', low: 'Bas',
+    todays_sales: "Ventes du jour", orders: 'Commandes',
+    low_stock_items: 'Stock bas', sales_this_week: 'Ventes de la semaine',
+    revenue_all: 'Recettes de tous les magasins',
+    by_category: 'Par catégorie', share_of_sales: 'Part des ventes',
+    top_products: 'Meilleures ventes', best_perf: 'Top performers cette semaine',
+    achievement: 'Réussite', weekly_target: 'Objectif atteint',
+    weekly_target_desc: 'Les quatre magasins ont dépassé leur objectif hebdomadaire pour la troisième semaine consécutive.',
+    progress: 'Progression', view_report: 'Voir le rapport',
+    products: 'Produits', suppliers: 'Fournisseurs',
+    purchase_orders: 'Bons de commande', stock_movements: 'Mouvements de stock',
+    total_skus: 'Total SKU', stock_value: 'Valeur stock',
+    out_of_stock: 'Rupture', low_stock: 'Stock bas',
+    all: 'Tous', export: 'Exporter', add_product: 'Ajouter produit',
+    product: 'Produit', category: 'Catégorie', price: 'Prix',
+    stock: 'Stock', status: 'Statut', edit: 'Modifier',
+    add_supplier: 'Ajouter fournisseur', supplier: 'Fournisseur',
+    contact: 'Contact', products_count: 'Produits', last_order: 'Dernière cmd.',
+    active: 'Actif', inactive: 'Inactif',
+    create_po: 'Créer bon', po_number: 'N° Bon',
+    order_date: 'Date', total_amount: 'Total', draft: 'Brouillon',
+    sent: 'Envoyé', in_transit: 'En transit', received: 'Reçu',
+    cancelled: 'Annulé',
+    stock_in: 'Entrée', stock_out: 'Sortie', adjustment: 'Ajustement',
+    type: 'Type', quantity: 'Qté', source: 'Source',
+    date_time: 'Date & heure', user: 'Utilisateur',
+    total_customers: 'Total Clients', loyalty_members: 'Membres Fidélité',
+    avg_visit: 'Panier moyen', retention: 'Fidélisation',
+    tier: 'Niveau', points: 'Points', visits: 'Visites',
+    lifetime_value: 'Valeur à vie', view_all: 'Tout voir',
+    recent_customers: 'Clients récents', top_spenders: 'Plus gros acheteurs ce mois',
+    total_stores: 'Total Magasins', combined_revenue: 'Recettes Combinées',
+    active_cashiers: 'Caissiers Actifs', avg_transaction: 'Transaction Moy.',
+    open: 'Ouvert', monthly: 'Mensuel', growth: 'Croissance', healthy: 'Sain',
+    store_comparison: 'Comparaison magasins', monthly_by_location: 'Recettes mensuelles par lieu',
+    sales_report: 'Rapport de ventes', sales_report_desc: 'Décomposition quotidienne, hebdomadaire et mensuelle',
+    tva_einv: 'TVA / Facturation', tva_einv_desc: 'Facturation électronique conforme DGI',
+    inv_report: 'Rapport inventaire', inv_report_desc: 'Niveaux, mouvements et valorisation',
+    generate: 'Générer', export_pdf: 'Exporter PDF',
+    revenue_trend: 'Tendance recettes & commandes', past_7_days: '7 derniers jours, tous magasins',
+    integrations: 'Intégrations', connected: 'Connecté',
+    s_general: 'Général', s_business: 'Entreprise', s_receipt: 'Reçu',
+    s_tax: 'Taxes', s_payments: 'Paiements', s_hardware: 'Matériel',
+    s_users: 'Utilisateurs', s_notifications: 'Notifications',
+    save_changes: 'Enregistrer', cancel: 'Annuler',
+    business_name: 'Nom de l\'entreprise', currency: 'Devise',
+    language: 'Langue', timezone: 'Fuseau horaire', date_format: 'Format de date',
+    address: 'Adresse', phone: 'Téléphone', email: 'E-mail', website: 'Site web',
+    rccm: 'Numéro RCCM', niu: 'NIU (Identifiant fiscal)',
+    receipt_header: 'En-tête du reçu', receipt_footer: 'Pied du reçu',
+    paper_width: 'Largeur du papier', show_logo: 'Afficher le logo',
+    show_qr: 'Afficher le QR code', show_loyalty: 'Afficher les points',
+    tva_rate: 'Taux de TVA', tva_included: 'Prix TTC',
+    tax_id_print: 'Imprimer NIU sur les reçus',
+    accept_cash: 'Accepter espèces', accept_card: 'Accepter cartes',
+    accept_mobile: 'Accepter mobile money',
+    barcode_scanner: 'Lecteur code-barres', receipt_printer: 'Imprimante reçus',
+    cash_drawer: 'Tiroir-caisse', customer_display: 'Écran client',
+    role: 'Rôle', permissions: 'Permissions', last_active: 'Actif',
+    admin: 'Administrateur', manager: 'Gestionnaire', cashier: 'Caissier',
+    low_stock_threshold: 'Seuil stock bas',
+    daily_summary: 'Résumé quotidien par e-mail',
+    weekly_summary: 'Rapport hebdomadaire',
+    payment_alerts: 'Alertes échec de paiement',
+    receipt: 'Reçu', original: 'Original',
+    cashier_label: 'Caissier', station_label: 'Caisse', invoice: 'Facture',
+    items_label: 'Articles', qty_label: 'Qté', price_label: 'Prix',
+    paid: 'Payé', change: 'Monnaie',
+    thank_you: 'Merci de votre visite',
+    visit_again: 'À bientôt !',
+    close: 'Fermer', email_receipt: 'Envoyer par e-mail',
+  }
+};
+
+const LangContext = createContext({ lang: 'en', t: (k) => k, setLang: () => {} });
+const useT = () => useContext(LangContext);
+
+// ============ SHIFT CONTEXT ============
+const DEFAULT_EMPLOYEES = [
+  { id: 1, name: 'Mariama Ndiaye', role: 'Cashier', initials: 'MN', color: 'from-amber-400 to-rose-500', rate: 1500 },
+  { id: 2, name: 'Ousmane Diallo', role: 'Manager', initials: 'OD', color: 'from-emerald-400 to-teal-600', rate: 2500 },
+  { id: 3, name: 'Awa Sow', role: 'Cashier', initials: 'AS', color: 'from-sky-400 to-indigo-600', rate: 1500 },
+  { id: 4, name: 'Ibrahim Bah', role: 'Stocker', initials: 'IB', color: 'from-fuchsia-400 to-purple-600', rate: 1200 },
+];
+
+const ShiftContext = createContext(null);
+const useShifts = () => useContext(ShiftContext);
+
+// ============ ROLE / PERMISSIONS ============
+// admin      -> full access (finances, inventory cost/margin, users, settings, reports)
+// manager    -> operations: pos, dashboard, inventory, customers, stores, shifts (no finance/cost)
+// cashier    -> pos + own shift only
+// accountant -> read-only finance role: dashboard, inventory (no edit), customers, reports
+//               with cost/margin + accounting, shifts (view), expenses. NO checkout, NO edits.
+const ROLE_ACCESS = {
+  admin:   { pos: true, dashboard: true, inventory: true, customers: true, stores: true, reports: true, shifts: true, settings: true, expenses: true,
+             seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
+  manager: { pos: true, dashboard: true, inventory: true, customers: true, stores: true, reports: true, shifts: true, settings: false, expenses: true,
+             seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
+  cashier: { pos: true, dashboard: false, inventory: false, customers: false, stores: false, reports: false, shifts: true, settings: false, expenses: false,
+             seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
+  accountant: { pos: false, dashboard: true, inventory: true, customers: true, stores: true, reports: true, shifts: true, settings: false, expenses: true,
+             seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
+};
+const RoleContext = createContext(null);
+const useRole = () => useContext(RoleContext);
+const RoleProvider = ({ children }) => {
+  const { user } = useAuth();
+  const [role, setRole] = useState(user?.role || 'cashier');
+  // Keep the active role in step with whoever is logged in.
+  useEffect(() => { if (user?.role) setRole(user.role); }, [user]);
+  const can = ROLE_ACCESS[role];
+  return <RoleContext.Provider value={{ role, setRole, can }}>{children}</RoleContext.Provider>;
+};
+
+const AccessDenied = ({ feature }) => (
+  <div className="flex-1 flex items-center justify-center p-8">
+    <div className="max-w-md text-center bg-white border border-stone-200 rounded-2xl p-10 shadow-sm">
+      <div className="w-14 h-14 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4">
+        <ShieldCheck size={26} />
+      </div>
+      <h2 className="text-xl font-semibold text-stone-900 mb-2">Access restricted</h2>
+      <p className="text-sm text-stone-600">
+        Your role does not have permission to view <span className="font-medium">{feature}</span>.
+        Please contact an administrator if you believe this is a mistake.
+      </p>
+    </div>
+  </div>
+);
+
+const ShiftProvider = ({ children }) => {
+  const { shifts: liveShifts, online, patch, refresh } = useData();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const shifts = liveShifts || [];
+
+  const activeShifts = shifts.filter(s => !s.clockOut);
+  // The open shift belonging to whoever is logged in (if any).
+  const myShift = user ? shifts.find(s => !s.clockOut && String(s.employeeId) === String(user.id)) : null;
+
+  // Cashier on the clock for the POS: prefer the logged-in user if clocked in,
+  // otherwise any clocked-in cashier/manager.
+  const activeCashier = myShift
+    ? { id: user.id, name: user.name, role: user.role }
+    : (activeShifts.find(s => ['cashier', 'manager'].includes((s.role || '').toLowerCase())) || null);
+
+  // Clock the LOGGED-IN user in/out — never anyone else.
+  const clockIn = async () => {
+    if (!user) return;
+    if (online) {
+      try { const sh = await api.clockIn(); patch('shifts', list => [sh, ...list]); }
+      catch (e) { toast(e.message, 'error'); }
+    } else {
+      patch('shifts', list => [{ id: Date.now(), employeeId: user.id, name: user.name, role: user.role, clockIn: new Date().toISOString(), clockOut: null }, ...list]);
+    }
+  };
+  const clockOut = async () => {
+    if (!user) return;
+    if (online) {
+      try { await api.clockOut(); refresh(); }
+      catch (e) { toast(e.message, 'error'); }
+    } else {
+      patch('shifts', list => list.map(s => String(s.employeeId) === String(user.id) && !s.clockOut ? { ...s, clockOut: new Date().toISOString() } : s));
+    }
+  };
+
+  return (
+    <ShiftContext.Provider value={{ shifts, activeShifts, myShift, activeCashier, clockIn, clockOut }}>
+      {children}
+    </ShiftContext.Provider>
+  );
+};
+
+// ============ DATA ============
+const CATEGORIES = [
+  { id: 'all', tKey: 'all_items', icon: LayoutGrid },
+  { id: 'cosmetics', tKey: 'cosmetics', icon: Sparkles },
+  { id: 'wines', tKey: 'wines', icon: Wine },
+  { id: 'whiskey', tKey: 'whiskey', icon: Sparkles },
+  { id: 'school_materials', tKey: 'school_materials', icon: Package },
+  { id: 'perfumes', tKey: 'perfumes', icon: Sparkles },
+  { id: 'icecream', tKey: 'icecream', icon: Cookie },
+  { id: 'shawarma', tKey: 'shawarma', icon: Beef },
+];
+
+const PRODUCTS = [];
+
+const PRODUCT_NAMES_FR = {};
+
+const CUSTOMERS = [
+  { id: 1, name: 'Aminata Bakary', phone: '+237 6 78 12 34 56', points: 1840, tier: 'Gold', visits: 47, spent: 425000 },
+  { id: 2, name: 'Jean-Paul Mbarga', phone: '+237 6 99 22 11 33', points: 920, tier: 'Silver', visits: 28, spent: 198000 },
+  { id: 3, name: 'Fatou Diallo', phone: '+237 6 55 67 89 01', points: 3210, tier: 'Platinum', visits: 89, spent: 782000 },
+  { id: 4, name: 'Samuel Nkomo', phone: '+237 6 71 23 45 67', points: 340, tier: 'Bronze', visits: 12, spent: 67000 },
+];
+
+const STORES = [
+  { id: 1, name: 'Diallo Central — Yaoundé', address: 'Avenue Kennedy, Centre-Ville', sales: 2840000, growth: 12.4 },
+  { id: 2, name: 'Diallo Bastos — Yaoundé', address: 'Quartier Bastos', sales: 1920000, growth: 8.1 },
+  { id: 3, name: 'Diallo Akwa — Douala', address: 'Boulevard de la Liberté', sales: 3120000, growth: 15.7 },
+  { id: 4, name: 'Diallo Bonanjo — Douala', address: 'Place du Gouvernement', sales: 1640000, growth: -2.3 },
+];
+
+const SUPPLIERS = [
+  { id: 1, name: 'Beauty Central', contact: 'Pierre Etoga', phone: '+237 6 77 11 22 33', email: 'p.etoga@beautycentral.cm', productsCount: 0, lastOrder: '2026-05-20', status: 'active', category: 'Cosmetics' },
+  { id: 2, name: 'Cameroon Wine Co.', contact: 'Sylvie Manga', phone: '+237 6 91 88 77 66', email: 'contact@camwine.cm', productsCount: 0, lastOrder: '2026-05-24', status: 'active', category: 'Wines' },
+  { id: 3, name: 'Whiskey House', contact: 'Robert Nguele', phone: '+237 6 55 44 33 22', email: 'robert@whiskeyhouse.cm', productsCount: 0, lastOrder: '2026-05-25', status: 'active', category: 'Whiskey' },
+  { id: 4, name: 'School Supplies Pro', contact: 'Claudette Atangana', phone: '+237 6 78 99 88 77', email: 'claudette@schoolsupplies.cm', productsCount: 0, lastOrder: '2026-05-26', status: 'active', category: 'School materials' },
+  { id: 5, name: 'Fragrance World', contact: 'Marc Tcheunkam', phone: '+237 6 22 11 00 99', email: 'marc@fragranceworld.cm', productsCount: 0, lastOrder: '2026-05-18', status: 'active', category: 'Perfumes' },
+  { id: 6, name: 'Ice Cream Factory', contact: 'Aïcha Souley', phone: '+237 6 33 22 44 55', email: 'a.souley@icecreamfactory.cm', productsCount: 0, lastOrder: '2026-05-15', status: 'active', category: 'Ice cream' },
+  { id: 7, name: 'Shawarma Express', contact: 'Bruno Eyenga', phone: '+237 6 66 55 77 88', email: 'bruno@shawarmaexpress.cm', productsCount: 0, lastOrder: '2026-04-28', status: 'inactive', category: 'Shawarma' },
+];
+
+const PURCHASE_ORDERS = [];
+
+const STOCK_MOVEMENTS = [];
+const USERS_DATA = [
+  { id: 1, name: 'Joseph Diallo', role: 'admin', email: 'joseph@diallo.cm', lastActive: '2 min ago', store: 'All stores' },
+  { id: 2, name: 'Mariam Ndongo', role: 'manager', email: 'mariam@diallo.cm', lastActive: 'Just now', store: 'Central' },
+  { id: 3, name: 'Paul Atangana', role: 'cashier', email: 'paul@diallo.cm', lastActive: '12 min ago', store: 'Central' },
+  { id: 4, name: 'Esther Ngo', role: 'cashier', email: 'esther@diallo.cm', lastActive: '1 hour ago', store: 'Bastos' },
+  { id: 5, name: 'David Onana', role: 'manager', email: 'david@diallo.cm', lastActive: '3 hours ago', store: 'Akwa' },
+];
+
+const SALES_CHART = [
+  { day: 'Mon', sales: 285000, orders: 142 }, { day: 'Tue', sales: 312000, orders: 168 },
+  { day: 'Wed', sales: 298000, orders: 155 }, { day: 'Thu', sales: 380000, orders: 198 },
+  { day: 'Fri', sales: 425000, orders: 224 }, { day: 'Sat', sales: 512000, orders: 287 },
+  { day: 'Sun', sales: 348000, orders: 184 },
+];
+
+const CATEGORY_BREAKDOWN = [];
+// ============ HELPERS ============
+const fmt = (n) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' FCFA';
+const fmtShort = (n) => {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K';
+  return n.toString();
+};
+
+const TIER_COLOR = {
+  Platinum: 'bg-gradient-to-br from-stone-700 to-stone-900 text-white',
+  Gold: 'bg-gradient-to-br from-amber-400 to-amber-600 text-white',
+  Silver: 'bg-gradient-to-br from-stone-300 to-stone-500 text-white',
+  Bronze: 'bg-gradient-to-br from-orange-300 to-orange-500 text-white',
+};
+
+const PO_STATUS = {
+  draft: { color: 'bg-stone-100 text-stone-700', dot: 'bg-stone-400' },
+  sent: { color: 'bg-sky-50 text-sky-700', dot: 'bg-sky-500' },
+  'in-transit': { color: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+  received: { color: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+  cancelled: { color: 'bg-rose-50 text-rose-700', dot: 'bg-rose-500' },
+};
+
+// ============ UI BITS ============
+const Logo = ({ size = 'md' }) => (
+  <div className="flex items-center gap-2.5">
+    <div className={`${size === 'sm' ? 'w-8 h-8' : 'w-10 h-10'} rounded-xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-emerald-900 flex items-center justify-center shadow-lg shadow-emerald-900/20 relative overflow-hidden`}>
+      <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/20" />
+      <span className="text-white font-serif font-bold text-lg relative" style={{ fontFamily: "'Fraunces', serif" }}>D</span>
+    </div>
+    <div>
+      <div className="font-serif text-stone-900 leading-none" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: size === 'sm' ? '18px' : '20px' }}>
+        Diallo
+      </div>
+      <div className="text-[10px] text-stone-500 tracking-[0.15em] uppercase mt-0.5">Point of Sale</div>
+    </div>
+  </div>
+);
+
+const Sidebar = ({ view, setView, mobileNav, closeNav }) => {
+  const { t } = useT();
+  const { role, can } = useRole();
+  const { toast } = useToast();
+  const { user, logout: authLogout } = useAuth();
+  const logout = () => {
+    if (window.confirm('Sign out of Diallo POS?')) { authLogout(); toast('Signed out', 'info'); }
+  };
+  const allNav = [
+    { id: 'pos', label: t('checkout'), icon: ShoppingCart },
+    { id: 'dashboard', label: t('dashboard'), icon: BarChart3 },
+    { id: 'inventory', label: t('inventory'), icon: Package },
+    { id: 'customers', label: t('customers'), icon: Users },
+    { id: 'stores', label: t('stores'), icon: Store },
+    { id: 'reports', label: t('reports'), icon: FileText },
+    { id: 'expenses', label: t('expenses') || 'Expenses', icon: Receipt },
+    { id: 'shifts', label: t('shifts') || 'Shifts', icon: Clock },
+  ];
+  const nav = allNav.filter(item => can[item.id]);
+  return (
+    <aside className={`w-60 bg-white border-r border-stone-200/80 flex flex-col h-full flex-shrink-0 z-40 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:shadow-2xl max-md:transition-transform ${mobileNav ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}`}>
+      <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
+        <Logo />
+        <button onClick={closeNav} className="md:hidden p-1.5 rounded-md hover:bg-stone-100 text-stone-500"><X size={18} /></button>
+      </div>
+      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+        {nav.map(item => {
+          const Icon = item.icon;
+          const active = view === item.id;
+          return (
+            <button key={item.id} onClick={() => setView(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
+                active ? 'bg-emerald-900 text-white shadow-sm shadow-emerald-900/20' : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+              }`}>
+              <Icon size={17} strokeWidth={active ? 2.2 : 1.8} />
+              <span className="font-medium">{item.label}</span>
+              {active && <ChevronRight size={14} className="ml-auto" />}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="p-3 border-t border-stone-200/80 space-y-0.5">
+        {can.settings && <button onClick={() => setView('settings')}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
+            view === 'settings' ? 'bg-emerald-900 text-white' : 'text-stone-600 hover:bg-stone-100'
+          }`}>
+          <Settings size={17} strokeWidth={view === 'settings' ? 2.2 : 1.8} />
+          <span className="font-medium">{t('settings')}</span>
+        </button>}
+        <button onClick={() => toast('Help: support@diallo.cm · +237 6 77 00 00 00', 'info')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100">
+          <HelpCircle size={17} strokeWidth={1.8} /><span>{t('help')}</span>
+        </button>
+      </div>
+      <div className="p-3 border-t border-stone-200/80">
+        <div className="flex items-center gap-3 px-2 py-2">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm font-semibold shadow-sm">{(user?.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-stone-900 truncate">{user?.name || 'User'}</div>
+            <div className="text-[11px] text-stone-500 truncate capitalize">{user?.role || role} · {user?.store || ''}</div>
+          </div>
+          <button onClick={logout} title="Sign out" className="p-1.5 rounded-md hover:bg-stone-100">
+            <LogOut size={15} className="text-stone-400" />
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+};
+
+const LangToggle = () => {
+  const { lang, setLang } = useT();
+  return (
+    <div className="flex items-center bg-white border border-stone-200 rounded-lg p-0.5 text-xs font-medium">
+      <button onClick={() => setLang('en')}
+        className={`px-2.5 py-1 rounded-md transition-all ${lang === 'en' ? 'bg-stone-900 text-white' : 'text-stone-600 hover:text-stone-900'}`}>
+        EN
+      </button>
+      <button onClick={() => setLang('fr')}
+        className={`px-2.5 py-1 rounded-md transition-all ${lang === 'fr' ? 'bg-stone-900 text-white' : 'text-stone-600 hover:text-stone-900'}`}>
+        FR
+      </button>
+    </div>
+  );
+};
+
+const TopBar = ({ title, subtitle, children, onMenu }) => {
+  const { lang } = useT();
+  const { products, online } = useData();
+  const [open, setOpen] = useState(false);
+  const lowStock = (products || []).filter(p => p.stock < 10);
+  return (
+    <div className="flex items-center justify-between px-5 md:px-7 py-4 bg-white/70 backdrop-blur border-b border-stone-200/80 flex-shrink-0">
+      <div className="flex items-center gap-3 min-w-0">
+        <button onClick={onMenu} className="md:hidden p-2 -ml-1 rounded-lg hover:bg-stone-100 text-stone-700 flex-shrink-0"><Menu size={20} /></button>
+        <div className="min-w-0">
+          <h1 className="font-serif text-xl md:text-2xl text-stone-900 leading-tight truncate" style={{ fontFamily: "'Fraunces', serif", fontWeight: 500 }}>{title}</h1>
+          {subtitle && <p className="text-xs text-stone-500 mt-0.5 truncate">{subtitle}</p>}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        {children}
+        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-stone-200 bg-white text-xs text-stone-600">
+          <Calendar size={13} />
+          <span>{new Date().toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+        </div>
+        <LangToggle />
+        <div className="relative">
+          <button onClick={() => setOpen(o => !o)} className="relative p-2 rounded-lg hover:bg-stone-100">
+            <Bell size={18} className="text-stone-600" />
+            {lowStock.length > 0 && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-rose-500 rounded-full" />}
+          </button>
+          {open && (
+            <div className="absolute right-0 mt-2 w-72 bg-white border border-stone-200 rounded-xl shadow-lg z-50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-stone-100 text-sm font-medium text-stone-900">Notifications</div>
+              <div className="max-h-64 overflow-y-auto">
+                {lowStock.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-xs text-stone-400">All good — no alerts</div>
+                ) : lowStock.map(p => (
+                  <div key={p.id} className="px-4 py-2.5 flex items-center gap-2 hover:bg-stone-50">
+                    <AlertTriangle size={14} className="text-amber-600 flex-shrink-0" />
+                    <div className="text-xs">
+                      <div className="font-medium text-stone-800">{p.name} low</div>
+                      <div className="text-stone-500">{p.stock} left · {p.sku}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-medium">
+          <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`} />
+          Central · {online ? 'Online' : 'Offline'}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const KpiCard = ({ label, value, delta, icon: Icon, accent }) => (
+  <div className="bg-white rounded-2xl p-5 border border-stone-200/80 hover:shadow-lg hover:shadow-stone-900/5 transition-all">
+    <div className="flex items-start justify-between mb-3">
+      <div className={`w-10 h-10 rounded-xl ${accent} flex items-center justify-center`}><Icon size={18} strokeWidth={1.8} /></div>
+      {delta !== undefined && (
+        <div className={`flex items-center gap-0.5 text-xs font-medium ${delta >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+          {delta >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}{Math.abs(delta)}%
+        </div>
+      )}
+    </div>
+    <div className="text-[11px] uppercase tracking-widest text-stone-500 font-medium mb-1">{label}</div>
+    <div className="font-serif text-2xl text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{value}</div>
+  </div>
+);
+
+// ============ THERMAL RECEIPT (modal) ============
+const QRPattern = () => {
+  // Decorative QR-like pattern using SVG
+  const cells = [];
+  const size = 21;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Position markers (corner squares)
+      const inCorner = (
+        (x < 7 && y < 7) || (x >= size - 7 && y < 7) || (x < 7 && y >= size - 7)
+      );
+      let fill = false;
+      if (inCorner) {
+        const cx = x < 7 ? 3 : size - 4;
+        const cy = y < 7 ? 3 : y >= size - 7 ? size - 4 : 3;
+        const dx = Math.abs(x - cx), dy = Math.abs(y - cy);
+        const m = Math.max(dx, dy);
+        fill = m === 0 || m === 1 || m === 3;
+      } else {
+        // pseudo-random based on coords
+        fill = ((x * 7 + y * 13 + x * y) % 5) < 2;
+      }
+      if (fill) cells.push({ x, y });
+    }
+  }
+  return (
+    <svg viewBox="0 0 21 21" className="w-24 h-24">
+      {cells.map((c, i) => <rect key={i} x={c.x} y={c.y} width="1" height="1" fill="#0f172a" />)}
+    </svg>
+  );
+};
+
+const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
+  const { t, lang } = useT();
+  const { activeCashier } = useShifts();
+  const { toast } = useToast();
+  if (!open) return null;
+  const { items = [], subtotal = 0, discount = 0, tva = 0, total = 0, customer, method = 'cash', earnedPoints = 0, invoiceNo = '' } = data || {};
+  const paid = total;
+  const change = 0;
+  const productName = (p) => lang === 'fr' ? (PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
+
+  return (
+    <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-stone-100 rounded-2xl max-w-md w-full flex flex-col" style={{ maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-200">
+          <div className="flex items-center gap-2">
+            <Receipt size={16} className="text-stone-600" />
+            <span className="font-medium text-stone-900 text-sm">{t('receipt')}</span>
+            <span className="text-[10px] uppercase tracking-widest text-stone-500 ml-1">· {t('original')}</span>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-stone-200">
+            <X size={15} className="text-stone-600" />
+          </button>
+        </div>
+
+        {/* Receipt paper */}
+        <div className="overflow-y-auto p-5 flex-1">
+          <div className="bg-white shadow-md mx-auto" style={{ width: '300px', fontFamily: "'JetBrains Mono', 'Courier New', monospace", fontSize: '11px', color: '#0c0a09' }}>
+            {/* Top tear edge */}
+            <div className="h-2 bg-white" style={{ background: 'linear-gradient(135deg, white 25%, transparent 25%) -5px 0, linear-gradient(225deg, white 25%, transparent 25%) -5px 0, white', backgroundSize: '10px 10px', backgroundRepeat: 'repeat-x' }} />
+
+            <div className="px-5 pb-5 pt-2">
+              {/* Logo */}
+              <div className="flex justify-center mb-2">
+                <div className="w-10 h-10 rounded-lg bg-stone-900 flex items-center justify-center">
+                  <span className="text-white font-bold text-base" style={{ fontFamily: "'Fraunces', serif" }}>D</span>
+                </div>
+              </div>
+              <div className="text-center mb-1">
+                <div className="font-bold text-base tracking-wide" style={{ fontFamily: "'Fraunces', serif" }}>DIALLO</div>
+                <div className="text-[10px] uppercase tracking-widest text-stone-500">Supermarché</div>
+              </div>
+              <div className="text-center text-[10px] leading-snug text-stone-700 mb-2">
+                Avenue Kennedy, Centre-Ville<br />
+                Yaoundé, Cameroun<br />
+                +237 6 77 00 00 00
+              </div>
+              <div className="text-center text-[9px] text-stone-500 mb-3">
+                RCCM: RC/YAO/2024/B/01234 · NIU: P012345678901G
+              </div>
+
+              <div className="border-t border-dashed border-stone-300 my-2" />
+
+              {/* Invoice meta */}
+              <div className="grid grid-cols-2 gap-y-0.5 text-[10px] my-2">
+                <div className="text-stone-500">{t('invoice')}:</div>
+                <div className="text-right font-medium">{invoiceNo || 'INV-2026-' + Math.floor(Math.random() * 9000 + 1000)}</div>
+                <div className="text-stone-500">{t('order_date')}:</div>
+                <div className="text-right">{new Date().toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="text-stone-500">{t('cashier_label')}:</div>
+                <div className="text-right">{activeCashier ? activeCashier.name : '—'}</div>
+                <div className="text-stone-500">{t('station_label')}:</div>
+                <div className="text-right">POS-03</div>
+                {customer && (
+                  <>
+                    <div className="text-stone-500">{t('customer')}:</div>
+                    <div className="text-right">{customer.name}</div>
+                  </>
+                )}
+              </div>
+
+              <div className="border-t border-dashed border-stone-300 my-2" />
+
+              {/* Items header */}
+              <div className="flex justify-between text-[10px] uppercase tracking-wider text-stone-500 font-bold mb-1">
+                <span>{t('items_label')}</span><span>{t('total')}</span>
+              </div>
+
+              {items.length === 0 ? (
+                <div className="text-center text-stone-400 text-[10px] py-2">— no items —</div>
+              ) : items.map(it => (
+                <div key={it.id} className="mb-1">
+                  <div className="flex justify-between gap-2">
+                    <span className="flex-1">{productName(it)}</span>
+                    <span className="font-medium">{fmt(it.price * it.qty)}</span>
+                  </div>
+                  <div className="flex justify-between text-stone-500 text-[10px] pl-1">
+                    <span>{it.qty} × {fmt(it.price)}</span>
+                    <span className="font-mono">{it.sku}</span>
+                  </div>
+                </div>
+              ))}
+
+              <div className="border-t border-dashed border-stone-300 my-2" />
+
+              {/* Totals */}
+              <div className="space-y-0.5 text-[11px]">
+                <div className="flex justify-between"><span>{t('subtotal')}</span><span>{fmt(subtotal)}</span></div>
+                {discount > 0 && customer && (
+                  <div className="flex justify-between text-emerald-700">
+                    <span>{customer.tier} {t('discount')}</span><span>−{fmt(discount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between"><span>TVA</span><span>{fmt(tva)}</span></div>
+                <div className="border-t border-stone-900 my-1.5" />
+                <div className="flex justify-between font-bold text-sm">
+                  <span>{t('total')}</span>
+                  <span style={{ fontFamily: "'Fraunces', serif" }}>{fmt(total)}</span>
+                </div>
+              </div>
+
+              <div className="border-t border-dashed border-stone-300 my-2" />
+
+              {/* Payment */}
+              <div className="space-y-0.5 text-[11px]">
+                <div className="flex justify-between"><span>{t('method')}:</span><span className="font-medium capitalize">{t(method)}</span></div>
+                <div className="flex justify-between"><span>{t('paid')}:</span><span>{fmt(paid)}</span></div>
+                <div className="flex justify-between"><span>{t('change')}:</span><span>{fmt(change)}</span></div>
+              </div>
+
+              {customer && earnedPoints > 0 && (
+                <>
+                  <div className="border-t border-dashed border-stone-300 my-2" />
+                  <div className="bg-amber-50 -mx-2 px-2 py-1.5 rounded">
+                    <div className="flex items-center gap-1 text-[10px] text-amber-900 mb-0.5">
+                      <Star size={9} className="fill-amber-500 text-amber-500" />
+                      <span className="font-bold uppercase tracking-wider">{t('loyalty_members')}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px]">
+                      <span>{customer.name}</span>
+                      <span className="font-medium">+{earnedPoints} {t('pts')}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-stone-600">
+                      <span>{t('total')} {t('points')}:</span>
+                      <span>{(customer.points + earnedPoints).toLocaleString()}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="border-t border-dashed border-stone-300 my-3" />
+
+              {/* QR */}
+              <div className="flex flex-col items-center gap-1 my-3">
+                <QRPattern />
+                <div className="text-[9px] text-stone-500 uppercase tracking-widest">DGI · e-invoice verified</div>
+              </div>
+
+              <div className="border-t border-dashed border-stone-300 my-2" />
+
+              <div className="text-center text-[10px] text-stone-600 leading-snug my-2">
+                <div className="font-bold mb-0.5" style={{ fontFamily: "'Fraunces', serif" }}>{t('thank_you')}</div>
+                <div>{t('visit_again')}</div>
+                <div className="mt-2 text-stone-400">diallo.cm · @diallo_supermarche</div>
+              </div>
+
+              {/* Bottom tear edge */}
+            </div>
+            <div className="h-2 bg-white" style={{ background: 'linear-gradient(45deg, white 25%, transparent 25%) -5px 0, linear-gradient(-45deg, white 25%, transparent 25%) -5px 0, white', backgroundSize: '10px 10px', backgroundRepeat: 'repeat-x' }} />
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="border-t border-stone-200 p-4 grid grid-cols-3 gap-2 flex-shrink-0">
+          <button onClick={() => window.print()} className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50">
+            <Printer size={14} /> {t('print')}
+          </button>
+          <button onClick={() => {
+              const to = data?.customer?.email || '';
+              const subject = encodeURIComponent(`Receipt ${data?.invoiceNo || ''} — Diallo`);
+              const body = encodeURIComponent(`Thank you for your purchase. Total: ${fmt(data?.total || 0)}`);
+              window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
+              toast('Opening email…', 'info');
+            }} className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50">
+            <Mail size={14} /> {t('email_receipt')}
+          </button>
+          <button onClick={() => { onNewOrder ? onNewOrder() : onClose(); }} className="py-2 bg-emerald-900 text-white rounded-lg text-xs font-medium hover:bg-emerald-800">
+            {onNewOrder ? t('new_order') : t('close')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============ POS VIEW ============
+// Barcode scan box. A USB/Bluetooth scanner acts as a keyboard: it types the
+// code into the focused field and presses Enter. This modal keeps an input
+// focused so the cashier can scan items one after another; manual typing works too.
+const ScanModal = ({ open, onClose, onScan }) => {
+  const inputRef = useRef(null);
+  const [code, setCode] = useState('');
+  useEffect(() => {
+    if (open) { setCode(''); setTimeout(() => inputRef.current?.focus(), 50); }
+  }, [open]);
+  const submit = () => { if (onScan(code)) setCode(''); else setCode(''); inputRef.current?.focus(); };
+  return (
+    <Modal open={open} onClose={onClose} title="Scan barcode">
+      <p className="text-sm text-stone-600 mb-3">
+        Point your barcode scanner and scan an item — it adds to the cart automatically.
+        You can also type a product's SKU/barcode and press Enter.
+      </p>
+      <div className="flex items-center gap-2">
+        <Scan size={18} className="text-emerald-700 flex-shrink-0" />
+        <input
+          ref={inputRef}
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+          placeholder="Scan or type code, then Enter"
+          className="flex-1 px-3 py-2.5 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+      </div>
+      <p className="text-xs text-stone-400 mt-3">Tip: most USB barcode scanners work instantly — no setup needed. Keep this box open to scan several items in a row.</p>
+    </Modal>
+  );
+};
+
+const POSView = () => {
+  const { t, lang } = useT();
+  const { activeCashier } = useShifts();
+  const { products: liveProducts, customers: liveCustomers, online, refresh, settings } = useData();
+  const tvaRate = Number(settings?.tvaRate ?? 19.25) / 100;
+  const { toast } = useToast();
+  const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
+  const customerList = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
+  const [activeCat, setActiveCat] = useState('all');
+  const [cart, setCart] = useState([]);
+  const [search, setSearch] = useState('');
+  const [customer, setCustomer] = useState(null);
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('mobile');
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [showScan, setShowScan] = useState(false);
+  const [lastInvoice, setLastInvoice] = useState('');
+
+  // Default the selected customer to the first loyalty member once data loads.
+  useEffect(() => { if (!customer && customerList.length) setCustomer(customerList[0]); }, [customerList]); // eslint-disable-line
+
+  const productName = (p) => lang === 'fr' ? (p.name_fr || PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
+
+  const filtered = useMemo(() => products.filter(p =>
+    (activeCat === 'all' || p.category === activeCat) &&
+    (productName(p).toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()))
+  ), [activeCat, search, lang, products]);
+
+  const addToCart = (product) => {
+    // Apply any per-product discount to the unit price used in the cart.
+    const disc = Number(product.discount || 0);
+    const effPrice = disc > 0 ? Math.round(product.price * (1 - disc / 100)) : product.price;
+    const item = { ...product, price: effPrice, listPrice: product.price };
+    setCart(prev => {
+      const ex = prev.find(i => i.id === product.id);
+      if (ex) return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i);
+      return [...prev, { ...item, qty: 1 }];
+    });
+  };
+  const updateQty = (id, delta) => setCart(prev => prev.map(i => i.id === id ? { ...i, qty: Math.max(0, i.qty + delta) } : i).filter(i => i.qty > 0));
+  const removeItem = (id) => setCart(prev => prev.filter(i => i.id !== id));
+
+  // "Scan": prompt for a SKU/barcode and add the matching product.
+  // Look up a scanned/typed code against product SKU (or barcode) and add to cart.
+  // Works with USB/Bluetooth barcode scanners, which "type" the code then press Enter.
+  const onScanCode = (raw) => {
+    const code = (raw || '').trim();
+    if (!code) return false;
+    const match = products.find(p =>
+      (p.sku || '').toLowerCase() === code.toLowerCase() ||
+      (p.barcode || '').toLowerCase() === code.toLowerCase()
+    );
+    if (match) { addToCart(match); toast(`${productName(match)} added`); return true; }
+    toast(`No product for code "${code}"`, 'error');
+    return false;
+  };
+  const handleScan = () => setShowScan(true);
+
+  const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const discount = customer?.tier === 'Platinum' ? subtotal * 0.05 : customer?.tier === 'Gold' ? subtotal * 0.03 : 0;
+  const tva = (subtotal - discount) * tvaRate;
+  const total = subtotal - discount + tva;
+  const earnedPoints = Math.floor(total / 1000);
+
+  const completePayment = async () => {
+    if (cart.length === 0 || !activeCashier) return;
+    const payload = {
+      items: cart.map(i => ({ id: i.id, name: i.name, sku: i.sku, price: i.price, qty: i.qty })),
+      customerId: customer?.id || null,
+      method: paymentMethod, cashier: activeCashier.name, discount, tva,
+    };
+    try {
+      if (online) {
+        const order = await api.createOrder(payload);
+        setLastInvoice(order.invoiceNo);
+        refresh(); // pull fresh stock levels + customer points
+      } else {
+        setLastInvoice('INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000));
+      }
+      setShowReceipt(true);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const startNewOrder = () => { setCart([]); setShowReceipt(false); };
+
+  const receiptData = { items: cart, subtotal, discount, tva, total, customer, method: paymentMethod, earnedPoints, invoiceNo: lastInvoice };
+
+  return (
+    <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-stone-50 via-white to-emerald-50/30">
+        <div className="px-7 py-4 border-b border-stone-200/60 bg-white/60 backdrop-blur flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('search_products')}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  // A hardware scanner types the code here then sends Enter.
+                  if (onScanCode(search)) { setSearch(''); return; }
+                  if (filtered.length === 1) { addToCart(filtered[0]); setSearch(''); }
+                }}
+                className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+            </div>
+            <button onClick={handleScan} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-900 text-white rounded-xl text-sm font-medium hover:bg-emerald-800 shadow-sm">
+              <Scan size={16} />{t('scan')}
+            </button>
+          </div>
+        </div>
+
+        <div className="px-7 py-4 border-b border-stone-200/60 flex-shrink-0">
+          <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+            {CATEGORIES.map(cat => {
+              const Icon = cat.icon;
+              const active = activeCat === cat.id;
+              return (
+                <button key={cat.id} onClick={() => setActiveCat(cat.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm whitespace-nowrap transition-all ${
+                    active ? 'bg-stone-900 text-white shadow-sm' : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
+                  }`}>
+                  <Icon size={15} strokeWidth={1.8} /><span className="font-medium">{t(cat.tKey)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-7 py-5">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {filtered.map(p => {
+              const lowStock = p.stock < 10;
+              return (
+                <button key={p.id} onClick={() => addToCart(p)}
+                  className="group relative bg-white rounded-2xl p-3.5 border border-stone-200/80 hover:border-emerald-600 hover:shadow-lg hover:shadow-emerald-900/5 transition-all text-left">
+                  {lowStock && (
+                    <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-medium rounded-md flex items-center gap-1">
+                      <AlertTriangle size={9} /> {t('low')}
+                    </div>
+                  )}
+                  {Number(p.discount) > 0 && (
+                    <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-rose-600 text-white text-[10px] font-semibold rounded-md">−{Number(p.discount)}%</div>
+                  )}
+                  <div className="aspect-square rounded-xl bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center mb-3 text-4xl group-hover:scale-105 transition-transform overflow-hidden">
+                    {p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}
+                  </div>
+                  <div className="text-[11px] text-stone-400 font-mono mb-0.5">{p.sku}</div>
+                  <div className="text-sm font-medium text-stone-900 leading-tight line-clamp-2 mb-1.5 min-h-[2.5em]">{productName(p)}</div>
+                  <div className="flex items-end justify-between">
+                    {Number(p.discount) > 0 ? (
+                      <div>
+                        <div className="text-[10px] text-stone-400 line-through">{fmt(p.price)}</div>
+                        <div className="font-serif text-emerald-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(Math.round(p.price * (1 - Number(p.discount) / 100)))}</div>
+                      </div>
+                    ) : (
+                      <div className="font-serif text-emerald-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(p.price)}</div>
+                    )}
+                    <div className="text-[10px] text-stone-500">{p.stock} {t('in_stock')}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="w-[420px] bg-white border-l border-stone-200/80 flex flex-col flex-shrink-0">
+        <div className="p-5 border-b border-stone-200/80">
+          <div className="text-[10px] uppercase tracking-widest text-stone-400 font-medium mb-2">{t('customer')}</div>
+          {customer ? (
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${TIER_COLOR[customer.tier]}`}>
+                {customer.name.split(' ').map(n => n[0]).join('')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-stone-900 truncate">{customer.name}</div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">{customer.tier}</span>
+                  <span className="text-stone-300">·</span>
+                  <span className="text-xs text-stone-600 flex items-center gap-1"><Star size={10} className="fill-amber-400 text-amber-400" /> {customer.points} {t('pts')}</span>
+                </div>
+              </div>
+              <button onClick={() => setCustomer(null)} className="p-1.5 rounded-md hover:bg-stone-100"><X size={14} className="text-stone-400" /></button>
+            </div>
+          ) : (
+            <button onClick={() => setShowCustomerPicker(true)} className="w-full flex items-center gap-2 px-3 py-2.5 border-2 border-dashed border-stone-200 rounded-lg text-sm text-stone-500 hover:border-emerald-600 hover:text-emerald-700">
+              <Plus size={15} /> {t('add_customer')}
+            </button>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] uppercase tracking-widest text-stone-400 font-medium">{t('order')} · {cart.length} {t('items')}</div>
+            {cart.length > 0 && (
+              <button onClick={() => setCart([])} className="text-[11px] text-stone-500 hover:text-rose-600 flex items-center gap-1">
+                <Trash2 size={11} /> {t('clear')}
+              </button>
+            )}
+          </div>
+          {cart.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="w-16 h-16 rounded-full bg-stone-100 flex items-center justify-center mb-3"><ShoppingCart size={24} className="text-stone-400" /></div>
+              <div className="text-sm text-stone-500">{t('cart_empty')}</div>
+              <div className="text-xs text-stone-400 mt-1">{t('tap_to_add')}</div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cart.map(item => (
+                <div key={item.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-stone-50 group">
+                  <div className="w-11 h-11 rounded-lg bg-stone-100 flex items-center justify-center text-2xl flex-shrink-0">{item.emoji}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-stone-900 truncate">{productName(item)}</div>
+                    <div className="text-xs text-stone-500">{fmt(item.price)}</div>
+                  </div>
+                  <div className="flex items-center gap-1 bg-stone-100 rounded-lg p-0.5">
+                    <button onClick={() => updateQty(item.id, -1)} className="w-6 h-6 rounded-md hover:bg-white flex items-center justify-center"><Minus size={12} /></button>
+                    <span className="w-7 text-center text-sm font-medium">{item.qty}</span>
+                    <button onClick={() => updateQty(item.id, 1)} className="w-6 h-6 rounded-md hover:bg-white flex items-center justify-center"><Plus size={12} /></button>
+                  </div>
+                  <button onClick={() => removeItem(item.id)} className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-rose-600"><X size={14} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-stone-200/80 p-5 bg-stone-50/50 flex-shrink-0">
+          <div className="space-y-1.5 mb-4 text-sm">
+            <div className="flex justify-between text-stone-600"><span>{t('subtotal')}</span><span>{fmt(subtotal)}</span></div>
+            {discount > 0 && (
+              <div className="flex justify-between text-emerald-700">
+                <span className="flex items-center gap-1"><Gift size={12} /> {customer.tier} {t('discount')}</span>
+                <span>−{fmt(discount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-stone-600"><span>TVA ({(tvaRate * 100).toLocaleString()}%)</span><span>{fmt(tva)}</span></div>
+            <div className="h-px bg-stone-200 my-2" />
+            <div className="flex justify-between items-baseline">
+              <span className="text-stone-900 font-medium">{t('total')}</span>
+              <span className="font-serif text-2xl text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(total)}</span>
+            </div>
+            {customer && earnedPoints > 0 && (
+              <div className="flex justify-between text-xs text-amber-700 mt-1">
+                <span className="flex items-center gap-1"><Sparkles size={11} /> {t('earns')}</span>
+                <span className="font-medium">+{earnedPoints} {t('pts')}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5 mb-3">
+            {[
+              { id: 'cash', icon: Banknote, label: t('cash') },
+              { id: 'card', icon: CreditCard, label: t('card') },
+              { id: 'mobile', icon: Smartphone, label: t('mobile') },
+            ].map(m => {
+              const Icon = m.icon;
+              const active = paymentMethod === m.id;
+              return (
+                <button key={m.id} onClick={() => setPaymentMethod(m.id)}
+                  className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition-all ${
+                    active ? 'border-emerald-900 bg-emerald-900 text-white' : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
+                  }`}>
+                  <Icon size={16} strokeWidth={1.8} /><span className="text-[11px] font-medium">{m.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {!activeCashier && (
+            <div className="mb-3 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2">
+              <AlertTriangle size={15} className="text-amber-700 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-amber-900 leading-snug">
+                <div className="font-semibold">No cashier on the clock</div>
+                <div className="text-amber-800">Open the Shifts view and clock in a cashier to accept payments.</div>
+              </div>
+            </div>
+          )}
+          {activeCashier && (
+            <div className="mb-3 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-emerald-900">Cashier: <span className="font-semibold">{activeCashier.name}</span></span>
+            </div>
+          )}
+          <button onClick={completePayment} disabled={cart.length === 0 || !activeCashier}
+            className="w-full py-3.5 bg-gradient-to-r from-emerald-700 to-emerald-900 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-900/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2">
+            <CheckCircle2 size={18} />{t('complete_payment')}
+          </button>
+        </div>
+      </div>
+
+      <ReceiptModal open={showReceipt} onClose={() => setShowReceipt(false)} data={receiptData} onNewOrder={startNewOrder} />
+      <ScanModal open={showScan} onClose={() => setShowScan(false)} onScan={onScanCode} />
+
+      <Modal open={showCustomerPicker} onClose={() => setShowCustomerPicker(false)} title={t('add_customer')}>
+        <div className="space-y-1">
+          {customerList.map(c => (
+            <button key={c.id} onClick={() => { setCustomer(c); setShowCustomerPicker(false); }}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-stone-50 text-left">
+              <div>
+                <div className="text-sm font-medium text-stone-900">{c.name}</div>
+                <div className="text-xs text-stone-500">{c.phone}</div>
+              </div>
+              <span className="text-xs text-stone-500">{c.tier} · {c.points} pts</span>
+            </button>
+          ))}
+        </div>
+      </Modal>
+    </div>
+  );
+};
+
+// ============ DASHBOARD ============
+const DashboardView = () => {
+  const { t } = useT();
+  const { online, products: liveProducts, customers: liveCustomers } = useData();
+  const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
+  const customers = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
+  const [range, setRange] = useState('7D');
+  const [report, setReport] = useState(null);
+
+  // Pull live totals when the backend is up.
+  useEffect(() => {
+    if (!online) return;
+    api.salesReport().then(setReport).catch(() => {});
+  }, [online]);
+
+  // Scale the chart window to the selected range (demo data is daily).
+  const chartData = useMemo(() => {
+    if (range === '7D') return SALES_CHART;
+    const reps = range === '30D' ? 4 : 12;
+    return Array.from({ length: reps }).flatMap((_, k) =>
+      SALES_CHART.map(d => ({ ...d, day: `${d.day}${reps > 4 ? '·' + (k + 1) : ''}`, sales: Math.round(d.sales * (0.85 + Math.random() * 0.3)) }))
+    );
+  }, [range]);
+
+  const lowCount = products.filter(p => p.stock < 10).length;
+  const todaysSales = report?.totals?.revenue != null ? fmt(report.totals.revenue) : '0 FCFA';
+  const ordersCount = report?.totals?.orders != null ? String(report.totals.orders) : '0';
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-gradient-to-br from-stone-50 via-white to-emerald-50/20 p-7">
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <KpiCard label={t('todays_sales')} value={todaysSales} icon={TrendingUp} accent="bg-emerald-50 text-emerald-700" />
+        <KpiCard label={t('orders')} value={ordersCount} icon={Receipt} accent="bg-amber-50 text-amber-700" />
+        <KpiCard label={t('customers')} value={String(customers.length)} icon={Users} accent="bg-rose-50 text-rose-700" />
+        <KpiCard label={t('low_stock_items')} value={String(lowCount)} icon={AlertTriangle} accent="bg-orange-50 text-orange-700" />
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        <div className="col-span-2 bg-white rounded-2xl p-5 border border-stone-200/80">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('sales_this_week')}</h3>
+              <p className="text-xs text-stone-500 mt-0.5">{t('revenue_all')}</p>
+            </div>
+            <div className="flex gap-1 text-xs">
+              {['7D', '30D', '90D'].map((p) => (
+                <button key={p} onClick={() => setRange(p)} className={`px-3 py-1.5 rounded-md font-medium ${range === p ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'}`}>{p}</button>
+              ))}
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={240}>
+            <AreaChart data={chartData}>
+              <defs>
+                <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#059669" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#059669" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
+              <XAxis dataKey="day" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
+              <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
+              <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v) => fmt(v)} />
+              <Area type="monotone" dataKey="sales" stroke="#047857" strokeWidth={2.5} fill="url(#grad1)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80">
+          <h3 className="font-serif text-lg text-stone-900 mb-1" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('by_category')}</h3>
+          <p className="text-xs text-stone-500 mb-3">{t('share_of_sales')}</p>
+          <ResponsiveContainer width="100%" height={180}>
+            <PieChart>
+              <Pie data={CATEGORY_BREAKDOWN} dataKey="value" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                {CATEGORY_BREAKDOWN.map((e, i) => <Cell key={i} fill={e.color} />)}
+              </Pie>
+              <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="space-y-1.5 mt-2">
+            {CATEGORY_BREAKDOWN.slice(0, 4).map(c => (
+              <div key={c.name} className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ background: c.color }} />
+                  <span className="text-stone-700">{c.name}</span>
+                </div>
+                <span className="font-medium text-stone-900">{c.value}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2 bg-white rounded-2xl p-5 border border-stone-200/80">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('top_products')}</h3>
+              <p className="text-xs text-stone-500 mt-0.5">{t('best_perf')}</p>
+            </div>
+          </div>
+          <div className="space-y-2.5">
+            {PRODUCTS.slice(0, 5).map((p, i) => (
+              <div key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-stone-50">
+                <div className="w-7 h-7 rounded-md bg-stone-100 flex items-center justify-center text-xs font-mono text-stone-500">{i + 1}</div>
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center text-2xl overflow-hidden">{p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}</div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-stone-900">{p.name}</div>
+                  <div className="text-xs text-stone-500">{p.sku}</div>
+                </div>
+                <div className="flex-1 max-w-[180px]">
+                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-700 rounded-full" style={{ width: `${100 - i * 14}%` }} />
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-stone-900">{fmt(p.price * (28 - i * 4))}</div>
+                  <div className="text-xs text-stone-500">{28 - i * 4} sold</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-emerald-900 via-emerald-800 to-stone-900 rounded-2xl p-5 text-white relative overflow-hidden">
+          <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-emerald-600/20 blur-2xl" />
+          <div className="absolute -right-8 -bottom-8 w-32 h-32 rounded-full bg-amber-400/10 blur-2xl" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-3">
+              <Award size={16} className="text-amber-300" />
+              <span className="text-[11px] uppercase tracking-widest text-amber-200/80 font-medium">{t('achievement')}</span>
+            </div>
+            <h3 className="font-serif text-xl leading-tight mb-2" style={{ fontFamily: "'Fraunces', serif", fontWeight: 500 }}>{t('weekly_target')}</h3>
+            <p className="text-sm text-stone-300 mb-4">{t('weekly_target_desc')}</p>
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs"><span className="text-stone-300">{t('progress')}</span><span className="font-medium">112%</span></div>
+              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-amber-400 to-amber-300 rounded-full" style={{ width: '100%' }} />
+              </div>
+            </div>
+            <button onClick={() => {
+                const rows = [['Day', 'Orders', 'Sales (FCFA)']];
+                chartData.forEach(d => rows.push([d.day, d.orders, d.sales]));
+                downloadCsv(`dashboard-${range}-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+              }} className="mt-5 text-xs flex items-center gap-1 text-amber-300 hover:text-amber-200">
+              {t('view_report')} <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============ INVENTORY — with tabs ============
+const InventoryView = () => {
+  const { t } = useT();
+  const { can } = useRole();
+  const [tab, setTab] = useState('products');
+  const tabs = [
+    { id: 'products', label: t('products'), icon: Package },
+    { id: 'suppliers', label: t('suppliers'), icon: Truck },
+    { id: 'purchase', label: t('purchase_orders'), icon: ClipboardList },
+    { id: 'movements', label: t('stock_movements'), icon: RefreshCw },
+  ];
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-stone-50/30">
+      {/* Sub-nav tabs */}
+      <div className="px-7 pt-5 sticky top-0 bg-stone-50/80 backdrop-blur z-10 border-b border-stone-200/60">
+        <div className="flex gap-1">
+          {tabs.map(tb => {
+            const Icon = tb.icon;
+            const active = tab === tb.id;
+            return (
+              <button key={tb.id} onClick={() => setTab(tb.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${
+                  active ? 'text-emerald-900 border-emerald-900' : 'text-stone-500 border-transparent hover:text-stone-900'
+                }`}>
+                <Icon size={15} strokeWidth={1.8} />{tb.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="p-7">
+        {tab === 'products' && <ProductsPanel />}
+        {tab === 'suppliers' && <SuppliersPanel />}
+        {tab === 'purchase' && <PurchaseOrdersPanel />}
+        {tab === 'movements' && <StockMovementsPanel />}
+      </div>
+    </div>
+  );
+};
+
+const ProductsPanel = () => {
+  const { t } = useT();
+  const { can } = useRole();
+  const { products: liveProducts, online } = useData();
+  const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const filtered = products.filter(p => {
+    if (filter === 'low' && p.stock >= 10) return false;
+    if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+  const exportProducts = () => {
+    const rows = [['Name', 'SKU', 'Category', 'Price', 'Stock']];
+    filtered.forEach(p => rows.push([p.name, p.sku, p.category, p.price, p.stock]));
+    downloadCsv(`products-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+  const openAdd = () => { setEditing(null); setModalOpen(true); };
+  const openEdit = (p) => { setEditing(p); setModalOpen(true); };
+  const stockValue = products.reduce((sum, p) => sum + p.price * p.stock, 0);
+  const lowStockCount = products.filter(p => p.stock > 0 && p.stock < 10).length;
+  const outOfStockCount = products.filter(p => p.stock === 0).length;
+
+  return (
+    <>
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <KpiCard label={t('total_skus')} value={products.length.toLocaleString()} icon={Package} accent="bg-emerald-50 text-emerald-700" />
+        <KpiCard label={t('stock_value')} value={`${fmtShort(stockValue)} FCFA`} icon={Wallet} accent="bg-amber-50 text-amber-700" />
+        <KpiCard label={t('low_stock_items')} value={String(lowStockCount)} icon={AlertTriangle} accent="bg-orange-50 text-orange-700" />
+        <KpiCard label={t('out_of_stock')} value={String(outOfStockCount)} icon={X} accent="bg-rose-50 text-rose-700" />
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('search_products')}
+              className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600" />
+          </div>
+          <div className="flex gap-1">
+            {[{ id: 'all', label: t('all') }, { id: 'low', label: t('low_stock') }].map(f => (
+              <button key={f.id} onClick={() => setFilter(f.id)}
+                className={`px-3 py-2 rounded-lg text-xs font-medium ${filter === f.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={exportProducts} className="ml-auto flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
+            <Download size={14} /> {t('export')}
+          </button>
+          {can.editInventory && (
+            <button onClick={openAdd} className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
+              <Plus size={14} /> {t('add_product')}
+            </button>
+          )}
+        </div>
+
+        <table className="w-full">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+              <th className="px-5 py-3">{t('product')}</th>
+              <th className="px-3 py-3">SKU</th>
+              <th className="px-3 py-3">{t('category')}</th>
+              <th className="px-3 py-3">{t('price')}</th>
+              <th className="px-3 py-3">{t('stock')}</th>
+              <th className="px-3 py-3">{t('status')}</th>
+              <th className="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(p => {
+              const cat = CATEGORIES.find(c => c.id === p.category);
+              const lowStock = p.stock < 10;
+              return (
+                <tr key={p.id} className="border-b border-stone-100 hover:bg-stone-50/50">
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center text-xl overflow-hidden">{p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}</div>
+                      <div className="text-sm font-medium text-stone-900">{p.name}</div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-xs font-mono text-stone-500">{p.sku}</td>
+                  <td className="px-3 py-3"><span className="text-xs text-stone-700">{cat ? t(cat.tKey) : ''}</span></td>
+                  <td className="px-3 py-3 text-sm font-medium text-stone-900">{fmt(p.price)}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-stone-900">{p.stock}</span>
+                      <div className="w-16 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${lowStock ? 'bg-amber-500' : 'bg-emerald-600'}`} style={{ width: `${Math.min(100, (p.stock / 100) * 100)}%` }} />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
+                    {lowStock ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 text-[10px] font-medium rounded-md">
+                        <AlertTriangle size={10} /> {t('low_stock')}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-800 text-[10px] font-medium rounded-md">
+                        <CheckCircle2 size={10} /> {t('in_stock')}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    {can.editInventory && <button onClick={() => openEdit(p)} className="text-xs text-stone-500 hover:text-stone-900">{t('edit')}</button>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <ProductForm open={modalOpen} onClose={() => setModalOpen(false)} initial={editing} />
+    </>
+  );
+};
+
+const SuppliersPanel = () => {
+  const { t } = useT();
+  const { suppliers: liveSuppliers, online } = useData();
+  const SUPP = online ? (liveSuppliers || []) : (liveSuppliers?.length ? liveSuppliers : SUPPLIERS);
+  const [search, setSearch] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const filtered = SUPP.filter(s =>
+    s.name.toLowerCase().includes(search.toLowerCase()) ||
+    (s.contact || '').toLowerCase().includes(search.toLowerCase())
+  );
+  const active = SUPP.filter(s => s.status === 'active').length;
+  const totalProducts = SUPP.reduce((sum, s) => sum + s.productsCount, 0);
+  const orderedDates = SUPP.filter(s => s.lastOrder).map(s => (Date.now() - new Date(s.lastOrder).getTime()) / 86400000);
+  const avgDaysSinceOrder = orderedDates.length ? Math.round((orderedDates.reduce((a, b) => a + b, 0) / orderedDates.length) * 10) / 10 : null;
+
+  return (
+    <>
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <KpiCard label={t('suppliers')} value={SUPP.length.toString()} icon={Truck} accent="bg-emerald-50 text-emerald-700" />
+        <KpiCard label={t('active')} value={active.toString()} icon={CheckCircle2} accent="bg-sky-50 text-sky-700" />
+        <KpiCard label={t('products_count')} value={totalProducts.toString()} icon={Package} accent="bg-amber-50 text-amber-700" />
+        <KpiCard label="Avg. days since order" value={avgDaysSinceOrder != null ? `${avgDaysSinceOrder} days` : '—'} icon={Clock} accent="bg-rose-50 text-rose-700" />
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        {filtered.slice(0, 6).map(s => (
+          <div key={s.id} className="bg-white rounded-2xl p-5 border border-stone-200/80 hover:shadow-md hover:shadow-stone-900/5 transition-all">
+            <div className="flex items-start justify-between mb-3">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-100 to-emerald-50 flex items-center justify-center">
+                <Building2 size={18} className="text-emerald-800" />
+              </div>
+              <span className={`text-[10px] uppercase tracking-wider font-medium px-2 py-0.5 rounded-md ${
+                s.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-500'
+              }`}>
+                {t(s.status)}
+              </span>
+            </div>
+            <h3 className="font-serif text-base text-stone-900 mb-1" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{s.name}</h3>
+            <div className="text-xs text-stone-500 mb-3">{s.category}</div>
+            <div className="space-y-1 text-xs text-stone-600 mb-3">
+              <div className="flex items-center gap-2"><UserCircle2 size={12} className="text-stone-400" /> {s.contact}</div>
+              <div className="flex items-center gap-2"><Phone size={12} className="text-stone-400" /> {s.phone}</div>
+              <div className="flex items-center gap-2 truncate"><Mail size={12} className="text-stone-400" /> {s.email}</div>
+            </div>
+            <div className="flex items-center justify-between pt-3 border-t border-stone-100">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-stone-500">{t('products_count')}</div>
+                <div className="text-sm font-semibold text-stone-900">{s.productsCount}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-wider text-stone-500">{t('last_order')}</div>
+                <div className="text-sm font-medium text-stone-900">{s.lastOrder}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search suppliers..."
+              className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600" />
+          </div>
+          <button onClick={() => { setEditing(null); setModalOpen(true); }} className="ml-auto flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
+            <Plus size={14} /> {t('add_supplier')}
+          </button>
+        </div>
+        <table className="w-full">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+              <th className="px-5 py-3">{t('supplier')}</th>
+              <th className="px-3 py-3">{t('contact')}</th>
+              <th className="px-3 py-3">{t('category')}</th>
+              <th className="px-3 py-3">{t('products_count')}</th>
+              <th className="px-3 py-3">{t('last_order')}</th>
+              <th className="px-3 py-3">{t('status')}</th>
+              <th className="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(s => (
+              <tr key={s.id} className="border-b border-stone-100 hover:bg-stone-50/50">
+                <td className="px-5 py-3">
+                  <div className="text-sm font-medium text-stone-900">{s.name}</div>
+                  <div className="text-xs text-stone-500">{s.email}</div>
+                </td>
+                <td className="px-3 py-3">
+                  <div className="text-sm text-stone-900">{s.contact}</div>
+                  <div className="text-xs text-stone-500">{s.phone}</div>
+                </td>
+                <td className="px-3 py-3 text-sm text-stone-700">{s.category}</td>
+                <td className="px-3 py-3 text-sm font-medium text-stone-900">{s.productsCount}</td>
+                <td className="px-3 py-3 text-sm text-stone-700">{s.lastOrder}</td>
+                <td className="px-3 py-3">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md ${
+                    s.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-500'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'active' ? 'bg-emerald-500' : 'bg-stone-400'}`} />
+                    {t(s.status)}
+                  </span>
+                </td>
+                <td className="px-5 py-3 text-right">
+                  <button onClick={() => { setEditing(s); setModalOpen(true); }} className="text-xs text-stone-500 hover:text-stone-900">{t('edit')}</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <SupplierForm open={modalOpen} onClose={() => setModalOpen(false)} initial={editing} />
+    </>
+  );
+};
+
+const PurchaseOrdersPanel = () => {
+  const { t } = useT();
+  const { purchaseOrders: livePOs, online, upsertPO } = useData();
+  const { toast } = useToast();
+  const POS = online ? (livePOs || []) : (livePOs?.length ? livePOs : PURCHASE_ORDERS);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [createOpen, setCreateOpen] = useState(false);
+  const filtered = statusFilter === 'all' ? POS : POS.filter(po => po.status === statusFilter);
+
+  const counts = {
+    draft: POS.filter(p => p.status === 'draft').length,
+    sent: POS.filter(p => p.status === 'sent').length,
+    'in-transit': POS.filter(p => p.status === 'in-transit').length,
+    received: POS.filter(p => p.status === 'received').length,
+  };
+  const totalValue = POS.filter(p => p.status !== 'cancelled').reduce((s, p) => s + p.total, 0);
+  const pending = POS.filter(p => ['sent', 'in-transit'].includes(p.status)).reduce((s, p) => s + p.total, 0);
+
+  const advance = async (po, next) => {
+    try {
+      const saved = online ? await api.updatePurchaseOrder(po.id, { status: next }) : { ...po, status: next };
+      upsertPO(saved);
+      toast(`${po.id} → ${next}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const exportPOs = () => {
+    const rows = [['PO Number', 'Supplier', 'Date', 'Items', 'Total', 'Status']];
+    filtered.forEach(p => rows.push([p.id, p.supplier, p.date, p.items, p.total, p.status]));
+    downloadCsv(`purchase-orders-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+
+  const statusFilters = [
+    { id: 'all', label: t('all'), count: POS.length },
+    { id: 'draft', label: t('draft'), count: counts.draft },
+    { id: 'sent', label: t('sent'), count: counts.sent },
+    { id: 'in-transit', label: t('in_transit'), count: counts['in-transit'] },
+    { id: 'received', label: t('received'), count: counts.received },
+  ];
+
+  return (
+    <>
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <KpiCard label="Open POs" value={(counts.draft + counts.sent + counts['in-transit']).toString()} icon={ClipboardList} accent="bg-emerald-50 text-emerald-700" />
+        <KpiCard label="Pending delivery" value={fmtShort(pending) + ' FCFA'} icon={Truck} accent="bg-amber-50 text-amber-700" />
+        <KpiCard label="Received this month" value={counts.received.toString()} icon={CheckCircle2} accent="bg-sky-50 text-sky-700" />
+        <KpiCard label="Total YTD" value={fmtShort(totalValue) + ' FCFA'} icon={Wallet} accent="bg-rose-50 text-rose-700" />
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center gap-3 flex-wrap">
+          <div className="flex gap-1 flex-wrap">
+            {statusFilters.map(f => (
+              <button key={f.id} onClick={() => setStatusFilter(f.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  statusFilter === f.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100 border border-stone-200'
+                }`}>
+                {f.label}
+                <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${
+                  statusFilter === f.id ? 'bg-white/20' : 'bg-stone-100'
+                }`}>{f.count}</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={exportPOs} className="ml-auto flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
+            <Download size={14} /> {t('export')}
+          </button>
+          <button onClick={() => setCreateOpen(true)} className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
+            <Plus size={14} /> {t('create_po')}
+          </button>
+        </div>
+        <table className="w-full">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+              <th className="px-5 py-3">{t('po_number')}</th>
+              <th className="px-3 py-3">{t('supplier')}</th>
+              <th className="px-3 py-3">{t('order_date')}</th>
+              <th className="px-3 py-3">{t('items_label')}</th>
+              <th className="px-3 py-3">{t('total_amount')}</th>
+              <th className="px-3 py-3">{t('status')}</th>
+              <th className="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(po => {
+              const s = PO_STATUS[po.status];
+              const labelKey = { 'in-transit': 'in_transit', draft: 'draft', sent: 'sent', received: 'received', cancelled: 'cancelled' }[po.status];
+              return (
+                <tr key={po.id} className="border-b border-stone-100 hover:bg-stone-50/50">
+                  <td className="px-5 py-3 text-sm font-mono font-medium text-stone-900">{po.id}</td>
+                  <td className="px-3 py-3 text-sm text-stone-700">{po.supplier}</td>
+                  <td className="px-3 py-3 text-sm text-stone-600">{po.date}</td>
+                  <td className="px-3 py-3 text-sm text-stone-700">{po.items}</td>
+                  <td className="px-3 py-3 text-sm font-medium text-stone-900">{fmt(po.total)}</td>
+                  <td className="px-3 py-3">
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-medium rounded-md ${s.color}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />{t(labelKey)}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    {po.status === 'draft' && (
+                      <button onClick={() => advance(po, 'sent')} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium flex items-center gap-1 ml-auto">
+                        <Send size={11} /> {t('sent')}
+                      </button>
+                    )}
+                    {po.status === 'sent' && (
+                      <button onClick={() => advance(po, 'in-transit')} className="text-xs text-amber-700 hover:text-amber-900 font-medium">{t('in_transit')}</button>
+                    )}
+                    {po.status === 'in-transit' && (
+                      <button onClick={() => advance(po, 'received')} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium flex items-center gap-1 ml-auto">
+                        <FileCheck size={11} /> {t('received')}
+                      </button>
+                    )}
+                    {(po.status === 'received' || po.status === 'cancelled') && (
+                      <button onClick={() => toast(`${po.id} · ${po.supplier} · ${fmt(po.total)}`, 'info')} className="text-xs text-stone-500 hover:text-stone-900">View</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <POForm open={createOpen} onClose={() => setCreateOpen(false)} />
+    </>
+  );
+};
+
+const StockMovementsPanel = () => {
+  const { t } = useT();
+  const { stockMovements: liveMoves, online } = useData();
+  const MOVES = online ? (liveMoves || []) : (liveMoves?.length ? liveMoves : STOCK_MOVEMENTS);
+  const [typeFilter, setTypeFilter] = useState('all');
+  const filtered = typeFilter === 'all' ? MOVES : MOVES.filter(m => m.type === typeFilter);
+
+  const ins = MOVES.filter(m => m.type === 'in').length;
+  const outs = MOVES.filter(m => m.type === 'out').length;
+  const adjusts = MOVES.filter(m => m.type === 'adjust').length;
+
+  const exportMoves = () => {
+    const rows = [['Type', 'Product', 'Qty', 'Source', 'User', 'Date']];
+    filtered.forEach(m => rows.push([m.type, m.productName, m.qty, m.source, m.user, m.date]));
+    downloadCsv(`stock-movements-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+
+  return (
+    <>
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <KpiCard label={t('stock_in')} value={ins.toString()} icon={ArrowDownLeft} accent="bg-emerald-50 text-emerald-700" />
+        <KpiCard label={t('stock_out')} value={outs.toString()} icon={ArrowUpLeft} accent="bg-amber-50 text-amber-700" />
+        <KpiCard label={t('adjustment')} value={adjusts.toString()} icon={RefreshCw} accent="bg-rose-50 text-rose-700" />
+        <KpiCard label="Today's movements" value={MOVES.length.toString()} icon={Package} accent="bg-sky-50 text-sky-700" />
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center gap-3">
+          <div className="flex gap-1">
+            {[
+              { id: 'all', label: t('all') },
+              { id: 'in', label: t('stock_in') },
+              { id: 'out', label: t('stock_out') },
+              { id: 'adjust', label: t('adjustment') },
+            ].map(f => (
+              <button key={f.id} onClick={() => setTypeFilter(f.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  typeFilter === f.id ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100 border border-stone-200'
+                }`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={exportMoves} className="ml-auto flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
+            <Download size={14} /> {t('export')}
+          </button>
+        </div>
+        <table className="w-full">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+              <th className="px-5 py-3">{t('type')}</th>
+              <th className="px-3 py-3">{t('product')}</th>
+              <th className="px-3 py-3">{t('quantity')}</th>
+              <th className="px-3 py-3">{t('source')}</th>
+              <th className="px-3 py-3">{t('user')}</th>
+              <th className="px-5 py-3">{t('date_time')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(m => {
+              const styles = {
+                in: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: ArrowDownLeft, label: t('stock_in') },
+                out: { bg: 'bg-amber-50', text: 'text-amber-700', icon: ArrowUpLeft, label: t('stock_out') },
+                adjust: { bg: 'bg-rose-50', text: 'text-rose-700', icon: RefreshCw, label: t('adjustment') },
+              }[m.type];
+              const Icon = styles.icon;
+              return (
+                <tr key={m.id} className="border-b border-stone-100 hover:bg-stone-50/50">
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-1 ${styles.bg} ${styles.text} text-[11px] font-medium rounded-md`}>
+                      <Icon size={11} />{styles.label}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-sm font-medium text-stone-900">{m.productName}</td>
+                  <td className="px-3 py-3">
+                    <span className={`text-sm font-semibold ${m.type === 'in' ? 'text-emerald-700' : m.type === 'out' ? 'text-amber-700' : 'text-rose-700'}`}>
+                      {m.type === 'in' ? '+' : m.type === 'out' ? '−' : (m.qty >= 0 ? '+' : '−')}{Math.abs(m.qty)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-xs font-mono text-stone-600">{m.source}</td>
+                  <td className="px-3 py-3 text-sm text-stone-700">{m.user}</td>
+                  <td className="px-5 py-3 text-xs text-stone-500">{m.date}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+};
+
+// ============ CUSTOMERS ============
+const CustomersView = () => {
+  const { t } = useT();
+  const { customers: liveCustomers, online } = useData();
+  const list = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
+  const [detail, setDetail] = useState(null);
+  const exportCustomers = () => {
+    const rows = [['Name', 'Phone', 'Tier', 'Points', 'Visits', 'Lifetime value']];
+    list.forEach(c => rows.push([c.name, c.phone, c.tier, c.points, c.visits, c.spent]));
+    downloadCsv(`customers-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+  const totalCustomers = list.length;
+  const loyaltyMembers = list.filter(c => c.tier && c.tier !== 'Bronze').length;
+  const totalVisits = list.reduce((sum, c) => sum + (c.visits || 0), 0);
+  const totalSpent = list.reduce((sum, c) => sum + (c.spent || 0), 0);
+  const avgVisitValue = totalVisits ? Math.round(totalSpent / totalVisits) : 0;
+  const returning = list.filter(c => (c.visits || 0) > 1).length;
+  const retentionPct = totalCustomers ? Math.round((returning / totalCustomers) * 100) : 0;
+  const tierCounts = ['Platinum', 'Gold', 'Silver'].map(tier => {
+    const members = list.filter(c => c.tier === tier);
+    const revenue = members.reduce((sum, c) => sum + (c.spent || 0), 0);
+    return {
+      tier, count: members.length,
+      pctOfTotal: totalCustomers ? Math.round((members.length / totalCustomers) * 100) : 0,
+      pctOfRevenue: totalSpent ? Math.round((revenue / totalSpent) * 100) : 0,
+    };
+  });
+  return (
+    <div className="flex-1 overflow-y-auto bg-stone-50/30 p-7">
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <KpiCard label={t('total_customers')} value={totalCustomers.toLocaleString()} icon={Users} accent="bg-emerald-50 text-emerald-700" />
+        <KpiCard label={t('loyalty_members')} value={loyaltyMembers.toLocaleString()} icon={Star} accent="bg-amber-50 text-amber-700" />
+        <KpiCard label={t('avg_visit')} value={`${fmt(avgVisitValue)}`} icon={Receipt} accent="bg-rose-50 text-rose-700" />
+        <KpiCard label={t('retention')} value={`${retentionPct}%`} icon={TrendingUp} accent="bg-sky-50 text-sky-700" />
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        {[
+          { ...tierCounts[0], gradient: 'from-stone-700 to-stone-900' },
+          { ...tierCounts[1], gradient: 'from-amber-400 to-amber-600' },
+          { ...tierCounts[2], gradient: 'from-stone-300 to-stone-500' },
+        ].map(tt => (
+          <div key={tt.tier} className="bg-white rounded-2xl p-5 border border-stone-200/80 relative overflow-hidden">
+            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${tt.gradient} flex items-center justify-center mb-3`}>
+              <Award size={20} className="text-white" />
+            </div>
+            <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium mb-1">{tt.tier} {t('tier')}</div>
+            <div className="font-serif text-2xl text-stone-900 mb-1" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{tt.count} {t('loyalty_members').toLowerCase()}</div>
+            <div className="text-xs text-stone-500">{tt.pctOfTotal}% of total · {tt.pctOfRevenue}% of revenue</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
+          <div>
+            <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('recent_customers')}</h3>
+            <p className="text-xs text-stone-500 mt-0.5">{t('top_spenders')}</p>
+          </div>
+          <button onClick={exportCustomers} className="text-xs text-emerald-700 font-medium flex items-center gap-1">{t('view_all')} <ChevronRight size={13} /></button>
+        </div>
+        <table className="w-full">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+              <th className="px-5 py-3">{t('customer')}</th>
+              <th className="px-3 py-3">{t('tier')}</th>
+              <th className="px-3 py-3">{t('points')}</th>
+              <th className="px-3 py-3">{t('visits')}</th>
+              <th className="px-3 py-3">{t('lifetime_value')}</th>
+              <th className="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map(c => (
+              <tr key={c.id} className="border-b border-stone-100 hover:bg-stone-50/50">
+                <td className="px-5 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold ${TIER_COLOR[c.tier]}`}>
+                      {c.name.split(' ').map(n => n[0]).join('')}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-stone-900">{c.name}</div>
+                      <div className="text-xs text-stone-500">{c.phone}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-3 py-3">
+                  <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-medium ${TIER_COLOR[c.tier]}`}>{c.tier}</span>
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex items-center gap-1 text-sm">
+                    <Star size={12} className="fill-amber-400 text-amber-400" />
+                    <span className="font-medium">{c.points.toLocaleString()}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-sm text-stone-700">{c.visits}</td>
+                <td className="px-3 py-3 text-sm font-medium text-stone-900">{fmt(c.spent)}</td>
+                <td className="px-5 py-3 text-right">
+                  <button onClick={() => setDetail(c)} className="text-xs text-stone-500 hover:text-stone-900">View</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.name}>
+        {detail && (
+          <div className="space-y-3 text-sm">
+            <div className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center font-semibold ${TIER_COLOR[detail.tier]}`}>
+                {detail.name.split(' ').map(n => n[0]).join('')}
+              </div>
+              <div>
+                <div className="font-medium text-stone-900">{detail.name}</div>
+                <div className="text-xs text-stone-500">{detail.phone}</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <div className="bg-stone-50 rounded-lg p-3"><div className="text-xs text-stone-500">{t('tier')}</div><div className="font-medium">{detail.tier}</div></div>
+              <div className="bg-stone-50 rounded-lg p-3"><div className="text-xs text-stone-500">{t('points')}</div><div className="font-medium">{detail.points.toLocaleString()}</div></div>
+              <div className="bg-stone-50 rounded-lg p-3"><div className="text-xs text-stone-500">{t('visits')}</div><div className="font-medium">{detail.visits}</div></div>
+              <div className="bg-stone-50 rounded-lg p-3"><div className="text-xs text-stone-500">{t('lifetime_value')}</div><div className="font-medium">{fmt(detail.spent)}</div></div>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+// ============ STORES ============
+const StoresView = () => {
+  const { t } = useT();
+  const { online, users: liveUsers } = useData();
+  const users = online ? (liveUsers || []) : (liveUsers?.length ? liveUsers : USERS_DATA);
+  const [report, setReport] = useState(null);
+  useEffect(() => { if (online) api.salesReport().then(setReport).catch(() => {}); }, [online]);
+  // NOTE: there is no real multi-store backend yet (no stores table/API) — the cards and
+  // chart below still render the static STORES demo list. These two totals are derived
+  // from that same list so at least the KPI row and the cards never disagree with each other.
+  const combinedRevenue = STORES.reduce((sum, s) => sum + s.sales, 0);
+  const activeCashiers = users.filter(u => u.role === 'cashier').length;
+  const avgTransaction = report?.totals?.orders ? Math.round(report.totals.revenue / report.totals.orders) : 0;
+  return (
+    <div className="flex-1 overflow-y-auto bg-stone-50/30 p-7">
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <KpiCard label={t('total_stores')} value={String(STORES.length)} icon={Store} accent="bg-emerald-50 text-emerald-700" />
+        <KpiCard label={t('combined_revenue')} value={`${fmtShort(combinedRevenue)} FCFA`} icon={TrendingUp} accent="bg-amber-50 text-amber-700" />
+        <KpiCard label={t('active_cashiers')} value={String(activeCashiers)} icon={UserCircle2} accent="bg-rose-50 text-rose-700" />
+        <KpiCard label={t('avg_transaction')} value={`${fmt(avgTransaction)}`} icon={Receipt} accent="bg-sky-50 text-sky-700" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 mb-5">
+        {STORES.map(store => (
+          <div key={store.id} className="bg-white rounded-2xl p-5 border border-stone-200/80 hover:shadow-lg hover:shadow-stone-900/5 transition-all">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center">
+                  <Building2 size={20} className="text-emerald-800" />
+                </div>
+                <div>
+                  <h3 className="font-serif text-lg text-stone-900 leading-tight" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{store.name}</h3>
+                  <div className="flex items-center gap-1 text-xs text-stone-500 mt-1">
+                    <MapPin size={11} /> {store.address}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-medium rounded-md">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> {t('open')}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-stone-100">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium mb-1">{t('monthly')}</div>
+                <div className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmtShort(store.sales)} FCFA</div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium mb-1">{t('growth')}</div>
+                <div className={`flex items-center gap-1 text-sm font-medium ${store.growth >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                  {store.growth >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                  {Math.abs(store.growth)}%
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium mb-1">{t('status')}</div>
+                <div className="text-sm font-medium text-emerald-700">{t('healthy')}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 border border-stone-200/80">
+        <div className="mb-4">
+          <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('store_comparison')}</h3>
+          <p className="text-xs text-stone-500 mt-0.5">{t('monthly_by_location')}</p>
+        </div>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={STORES.map(s => ({ name: s.name.split('—')[1]?.trim() || s.name, sales: s.sales }))}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
+            <XAxis dataKey="name" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
+            <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
+            <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v) => fmt(v)} />
+            <Bar dataKey="sales" fill="#047857" radius={[8, 8, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
+// ============ REPORTS ============
+const ReportsView = () => {
+  const { t } = useT();
+  const { can } = useRole();
+  const { online, products: liveProducts, customers, purchaseOrders } = useData();
+  const { toast } = useToast();
+  const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const [range, setRange] = useState(null);
+  const [zData, setZData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const methodLabel = (m) => ({ cash: 'Cash', mobile: 'Mobile money', card: 'Card' }[m] || m || '—');
+
+  // Pull the date-range accounting figures from the backend.
+  const runRange = async () => {
+    if (!online) { toast('Connect to the backend to run accounting reports', 'error'); return; }
+    setLoading(true);
+    try {
+      const r = await api.rangeReport(from, to);
+      setRange(r);
+    } catch (e) { toast(e.message, 'error'); }
+    finally { setLoading(false); }
+  };
+
+  // Today's Z-report (close-out).
+  const runZ = async () => {
+    if (!online) { toast('Connect to the backend to run the Z-report', 'error'); return; }
+    try { setZData(await api.zReport(today)); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+
+  useEffect(() => { if (online) { runRange(); runZ(); } }, [online]); // eslint-disable-line
+
+  // 1) Date-range sales export — every transaction in the period.
+  const exportRangeCsv = () => {
+    if (!range?.orders?.length) { toast('No sales in this date range', 'info'); return; }
+    const rows = [['Invoice', 'Date', 'Time', 'Cashier', 'Method', 'Subtotal', 'Discount', 'TVA', 'Total']];
+    range.orders.forEach(o => {
+      const d = new Date(o.createdAt);
+      rows.push([o.invoiceNo, d.toISOString().slice(0, 10), d.toLocaleTimeString(), o.cashier || '', methodLabel(o.method), o.subtotal, o.discount, o.tva, o.total]);
+    });
+    const tot = range.totals;
+    rows.push([]);
+    rows.push(['', '', '', '', 'TOTALS', tot.subtotal, tot.discount, tot.tva, tot.revenue]);
+    downloadCsv(`sales-${from}_to_${to}.csv`, rows);
+    toast('Sales export downloaded');
+  };
+
+  // 2) TVA summary CSV for the period (real figures from recorded orders).
+  const exportTvaCsv = () => {
+    if (!range) { toast('Run the report first', 'info'); return; }
+    const { totals } = range;
+    const taxableBase = totals.revenue - totals.tva;
+    const rows = [
+      ['TVA summary', `${from} to ${to}`],
+      [],
+      ['Basis', 'Amount (FCFA)'],
+      ['Gross sales (TTC, incl. TVA)', totals.revenue],
+      ['Taxable base (HT, excl. TVA)', taxableBase],
+      ['TVA collected (19.25%)', totals.tva],
+      ['Discounts given', totals.discount],
+      ['Number of sales', totals.orders],
+    ];
+    downloadCsv(`tva-summary-${from}_to_${to}.csv`, rows);
+    toast('TVA summary downloaded');
+  };
+
+  // 3) Z-report CSV (daily close-out).
+  const exportZCsv = () => {
+    if (!zData) { toast('Run the Z-report first', 'info'); return; }
+    const m = zData.byMethod || [];
+    const rows = [
+      ['Z-Report (daily close-out)', zData.date],
+      [],
+      ['Summary', 'Amount (FCFA)'],
+      ['Gross sales (TTC)', zData.totals.revenue],
+      ['Taxable base (HT)', zData.totals.revenue - zData.totals.tva],
+      ['TVA collected', zData.totals.tva],
+      ['Discounts', zData.totals.discount],
+      ['Transactions', zData.totals.orders],
+      ['Gross margin', zData.margin.grossProfit],
+      [],
+      ['Payment method', 'Sales', 'Amount (FCFA)'],
+      ...m.map(x => [methodLabel(x.method), x.orders, x.amount]),
+      [],
+      ['Expected cash in drawer', zData.expectedCash],
+    ];
+    downloadCsv(`z-report-${zData.date}.csv`, rows);
+    toast('Z-report downloaded');
+  };
+
+  const genSalesReport = exportRangeCsv;
+  const genTvaReport = exportTvaCsv;
+  const genInventoryReport = async () => {
+    let items = products.map(p => ({ name: p.name, sku: p.sku, category: p.category, price: p.price, cost: p.cost || 0, stock: p.stock }));
+    if (online) { try { const r = await api.inventoryReport(); items = r.products; } catch {} }
+    const rows = [['Product', 'SKU', 'Category', 'Cost', 'Price', 'Unit margin', 'Stock', 'Stock value (cost)', 'Stock value (retail)']];
+    items.forEach(p => rows.push([p.name, p.sku, p.category, p.cost || 0, p.price, p.price - (p.cost || 0), p.stock, (p.cost || 0) * p.stock, p.price * p.stock]));
+    downloadCsv(`inventory-report-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    toast('Inventory report generated');
+  };
+  const exportRevenuePdf = () => {
+    // Print-to-PDF: opens the browser's print dialog where the user can "Save as PDF".
+    toast('Opening print dialog — choose “Save as PDF”', 'info');
+    setTimeout(() => window.print(), 250);
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-stone-50/30 p-5 md:p-7">
+      {can.seeFinance && <>
+      {/* ---- Accounting: date-range figures, TVA, margin, exports ---- */}
+      <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
+        <div className="flex flex-wrap items-end gap-3 mb-4">
+          <div>
+            <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Accounting</h3>
+            <p className="text-xs text-stone-500 mt-0.5">Pick a date range, then export sales, TVA, or margin.</p>
+          </div>
+          <div className="flex items-end gap-2 ml-auto">
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-1">From</label>
+              <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)}
+                className="px-2.5 py-1.5 border border-stone-200 rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-1">To</label>
+              <input type="date" value={to} min={from} max={today} onChange={e => setTo(e.target.value)}
+                className="px-2.5 py-1.5 border border-stone-200 rounded-lg text-sm" />
+            </div>
+            <button onClick={runRange} disabled={loading}
+              className="px-4 py-1.5 rounded-lg bg-emerald-900 text-white text-sm font-medium hover:bg-emerald-800 disabled:opacity-50">
+              {loading ? 'Running…' : 'Run'}
+            </button>
+          </div>
+        </div>
+
+        {range ? (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div className="bg-stone-50 rounded-xl p-3">
+                <div className="text-[11px] text-stone-500">Gross sales (TTC)</div>
+                <div className="text-lg font-semibold text-stone-900">{fmt(range.totals.revenue)}</div>
+              </div>
+              <div className="bg-stone-50 rounded-xl p-3">
+                <div className="text-[11px] text-stone-500">TVA collected</div>
+                <div className="text-lg font-semibold text-stone-900">{fmt(range.totals.tva)}</div>
+              </div>
+              <div className="bg-stone-50 rounded-xl p-3">
+                <div className="text-[11px] text-stone-500">Transactions</div>
+                <div className="text-lg font-semibold text-stone-900">{range.totals.orders}</div>
+              </div>
+              <div className="bg-emerald-50 rounded-xl p-3">
+                <div className="text-[11px] text-emerald-700">Gross margin</div>
+                <div className="text-lg font-semibold text-emerald-900">{fmt(range.margin.grossProfit)}</div>
+                <div className="text-[10px] text-emerald-700">{range.margin.marginPct.toFixed(1)}% · cost {fmt(range.margin.cost)}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-stone-500 mr-1">By payment:</span>
+              {(range.byMethod.length ? range.byMethod : [{ method: '—', orders: 0, amount: 0 }]).map(m => (
+                <span key={m.method} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">
+                  {methodLabel(m.method)}: <span className="font-medium">{fmt(m.amount)}</span> ({m.orders})
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-stone-100">
+              <button onClick={exportRangeCsv} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800"><Download size={14} /> Sales export (CSV)</button>
+              <button onClick={exportTvaCsv} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-stone-200 rounded-lg hover:bg-stone-50"><Download size={14} /> TVA summary (CSV)</button>
+            </div>
+          </>
+        ) : (
+          <div className="text-sm text-stone-400 py-4">{online ? 'Choose a range and press Run.' : 'Connect to the backend to use accounting reports.'}</div>
+        )}
+      </div>
+
+      {/* ---- Daily Z-report (close-out) ---- */}
+      <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Daily Z-Report</h3>
+            <p className="text-xs text-stone-500 mt-0.5">Today's close-out · {today}</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={runZ} className="px-3 py-2 text-xs font-medium border border-stone-200 rounded-lg hover:bg-stone-50">Refresh</button>
+            <button onClick={exportZCsv} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700"><Download size={14} /> Z-Report (CSV)</button>
+          </div>
+        </div>
+        {zData ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-stone-50 rounded-xl p-3"><div className="text-[11px] text-stone-500">Sales today</div><div className="text-lg font-semibold text-stone-900">{fmt(zData.totals.revenue)}</div></div>
+            <div className="bg-stone-50 rounded-xl p-3"><div className="text-[11px] text-stone-500">Transactions</div><div className="text-lg font-semibold text-stone-900">{zData.totals.orders}</div></div>
+            <div className="bg-stone-50 rounded-xl p-3"><div className="text-[11px] text-stone-500">TVA collected</div><div className="text-lg font-semibold text-stone-900">{fmt(zData.totals.tva)}</div></div>
+            <div className="bg-emerald-50 rounded-xl p-3"><div className="text-[11px] text-emerald-700">Expected cash drawer</div><div className="text-lg font-semibold text-emerald-900">{fmt(zData.expectedCash)}</div></div>
+          </div>
+        ) : (
+          <div className="text-sm text-stone-400 py-2">{online ? 'Press Refresh to load today\u2019s figures.' : 'Connect to the backend to run the Z-report.'}</div>
+        )}
+      </div>
+      </>}
+
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80">
+          <FileText size={20} className="text-emerald-700 mb-3" />
+          <h3 className="font-serif text-base text-stone-900 mb-1" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('sales_report')}</h3>
+          <p className="text-xs text-stone-500 mb-3">{t('sales_report_desc')}</p>
+          <button onClick={genSalesReport} className="text-xs font-medium text-emerald-700 flex items-center gap-1">{t('generate')} <ChevronRight size={12} /></button>
+        </div>
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80">
+          <Receipt size={20} className="text-amber-700 mb-3" />
+          <h3 className="font-serif text-base text-stone-900 mb-1" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('tva_einv')}</h3>
+          <p className="text-xs text-stone-500 mb-3">{t('tva_einv_desc')}</p>
+          <button onClick={genTvaReport} className="text-xs font-medium text-amber-700 flex items-center gap-1">{t('generate')} <ChevronRight size={12} /></button>
+        </div>
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80">
+          <Package size={20} className="text-rose-700 mb-3" />
+          <h3 className="font-serif text-base text-stone-900 mb-1" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('inv_report')}</h3>
+          <p className="text-xs text-stone-500 mb-3">{t('inv_report_desc')}</p>
+          <button onClick={genInventoryReport} className="text-xs font-medium text-rose-700 flex items-center gap-1">{t('generate')} <ChevronRight size={12} /></button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('revenue_trend')}</h3>
+            <p className="text-xs text-stone-500 mt-0.5">{t('past_7_days')}</p>
+          </div>
+          <button onClick={exportRevenuePdf} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-stone-200 rounded-lg hover:bg-stone-50">
+            <Download size={14} /> {t('export_pdf')}
+          </button>
+        </div>
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart data={SALES_CHART}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
+            <XAxis dataKey="day" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
+            <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
+            <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v, n) => n === 'sales' ? fmt(v) : v} />
+            <Line type="monotone" dataKey="sales" stroke="#047857" strokeWidth={2.5} dot={{ r: 4, fill: '#047857' }} />
+            <Line type="monotone" dataKey="orders" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b' }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="bg-gradient-to-br from-stone-50 to-emerald-50/40 rounded-2xl p-5 border border-stone-200/80">
+        <div className="flex items-center gap-3 mb-4">
+          <Zap size={18} className="text-amber-600" />
+          <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('integrations')}</h3>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          {['Sage Accounting', 'QuickBooks', 'MTN Mobile Money', 'Orange Money'].map(int => (
+            <div key={int} className="bg-white rounded-xl p-3 border border-stone-200/80 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                <CheckCircle2 size={14} className="text-emerald-700" />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-stone-900">{int}</div>
+                <div className="text-[10px] text-emerald-700">{t('connected')}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============ SETTINGS ============
+const Toggle = ({ checked, onChange }) => (
+  <button onClick={() => onChange(!checked)}
+    className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-emerald-700' : 'bg-stone-300'}`}>
+    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-all ${checked ? 'left-[18px]' : 'left-0.5'}`} />
+  </button>
+);
+
+const SettingsField = ({ label, hint, children }) => (
+  <div className="flex items-start justify-between gap-6 py-3.5 border-b border-stone-100 last:border-0">
+    <div className="flex-1 min-w-0 pt-1">
+      <div className="text-sm font-medium text-stone-900">{label}</div>
+      {hint && <div className="text-xs text-stone-500 mt-0.5">{hint}</div>}
+    </div>
+    <div className="flex-shrink-0">{children}</div>
+  </div>
+);
+
+const TextInput = ({ value, onChange, placeholder, width = 'w-64' }) => (
+  <input type="text" value={value} onChange={e => onChange?.(e.target.value)} placeholder={placeholder}
+    className={`${width} px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100`} />
+);
+
+const Select = ({ value, onChange, options, width = 'w-64' }) => (
+  <select value={value} onChange={e => onChange?.(e.target.value)}
+    className={`${width} px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 cursor-pointer`}>
+    {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+  </select>
+);
+
+const SettingsCard = ({ title, desc, children }) => (
+  <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+    <div className="px-6 py-4 border-b border-stone-200/80">
+      <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{title}</h3>
+      {desc && <p className="text-xs text-stone-500 mt-0.5">{desc}</p>}
+    </div>
+    <div className="px-6 py-2">{children}</div>
+  </div>
+);
+
+const SettingsView = () => {
+  const { t, lang, setLang } = useT();
+  const [tab, setTab] = useState('general');
+  const [settings, setSettings] = useState({
+    businessName: 'Diallo Supermarché',
+    currency: 'XAF',
+    timezone: 'Africa/Douala',
+    dateFormat: 'DD/MM/YYYY',
+    address: 'Avenue Kennedy, Centre-Ville, Yaoundé',
+    phone: '+237 6 77 00 00 00',
+    email: 'contact@diallo.cm',
+    website: 'www.diallo.cm',
+    rccm: 'RC/YAO/2024/B/01234',
+    niu: 'P012345678901G',
+    receiptHeader: 'DIALLO Supermarché — Merci de votre visite',
+    receiptFooter: 'Tous les retours sous 7 jours avec ticket de caisse',
+    paperWidth: '80',
+    showLogo: true,
+    showQR: true,
+    showLoyalty: true,
+    tvaRate: '19.25',
+    tvaIncluded: false,
+    taxIdPrint: true,
+    acceptCash: true,
+    acceptCard: true,
+    acceptMobile: true,
+    barcodeScanner: true,
+    receiptPrinter: true,
+    cashDrawer: true,
+    customerDisplay: false,
+    lowStockThreshold: '10',
+    dailySummary: true,
+    weeklySummary: true,
+    paymentAlerts: true,
+  });
+  const update = (k) => (v) => setSettings(prev => ({ ...prev, [k]: v }));
+
+  const { online, settings: liveSettings, users: liveUsers, refresh, patch } = useData();
+  const { toast } = useToast();
+  const { user: me } = useAuth();
+  const [savedSnapshot, setSavedSnapshot] = useState(null);
+  const [userModal, setUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [pinTarget, setPinTarget] = useState(null);   // user whose PIN is being reset
+  const [newPin, setNewPin] = useState('');
+  const users = online ? (liveUsers || []) : (liveUsers?.length ? liveUsers : USERS_DATA);
+  const isAdmin = me?.role === 'admin';
+
+  // Admin: delete a cashier/manager account (never an admin, never yourself).
+  const deleteUser = async (u) => {
+    if (!window.confirm(`Delete ${u.name}'s account? They will no longer be able to sign in, and their shift records will be removed.`)) return;
+    try {
+      if (online) await api.deleteUser(u.id);
+      patch('users', list => list.filter(x => x.id !== u.id));
+      patch('shifts', list => list.filter(s => String(s.employeeId) !== String(u.id)));
+      toast('Account deleted');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  // Admin/manager: open the reset-PIN dialog for a user.
+  const resetPin = (u) => { setPinTarget(u); setNewPin(''); };
+  const submitPin = async () => {
+    if (!/^\d{4,6}$/.test(newPin)) { toast('PIN must be 4–6 digits', 'error'); return; }
+    try {
+      if (online) await api.setUserPin(pinTarget.id, newPin);
+      toast(`PIN reset for ${pinTarget.name}`);
+      setPinTarget(null); setNewPin('');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  // Hydrate from the backend once it loads.
+  useEffect(() => {
+    if (liveSettings && Object.keys(liveSettings).length) {
+      setSettings(prev => ({ ...prev, ...liveSettings }));
+      setSavedSnapshot(liveSettings);
+    }
+  }, [liveSettings]);
+
+  const saveSettings = async () => {
+    try {
+      if (online) await api.saveSettings(settings);
+      setSavedSnapshot(settings);
+      toast('Settings saved');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const clearAllData = async () => {
+    if (!window.confirm('Clear ALL demo data — inventory, sales, dashboard, customers, suppliers, employees and other login accounts — so the shop starts from scratch?\n\nOnly your own account and settings are kept. It cannot be undone.')) return;
+    if (!window.confirm('Are you absolutely sure? Every product, sale, customer, supplier, employee and other user login will be permanently deleted.')) return;
+    try {
+      if (online) await api.clearData();
+      toast('All demo data cleared — the app now starts from zero');
+      refresh();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const cancelSettings = () => {
+    if (savedSnapshot) setSettings(prev => ({ ...prev, ...savedSnapshot }));
+    toast('Changes discarded', 'info');
+  };
+
+  const tabs = [
+    { id: 'general', label: t('s_general'), icon: Globe },
+    { id: 'business', label: t('s_business'), icon: Building },
+    { id: 'receipt', label: t('s_receipt'), icon: Receipt },
+    { id: 'tax', label: t('s_tax'), icon: Percent },
+    { id: 'payments', label: t('s_payments'), icon: CreditCard },
+    { id: 'hardware', label: t('s_hardware'), icon: Monitor },
+    { id: 'users', label: t('s_users'), icon: Users },
+    { id: 'notifications', label: t('s_notifications'), icon: BellRing },
+    { id: 'data', label: 'Data', icon: Trash2 },
+  ];
+
+  return (
+    <div className="flex-1 flex overflow-hidden bg-stone-50/30">
+      {/* Settings sub-nav */}
+      <aside className="w-56 border-r border-stone-200/60 p-4 overflow-y-auto bg-white/50 flex-shrink-0">
+        <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium px-2 mb-2">{t('settings')}</div>
+        <nav className="space-y-0.5">
+          {tabs.map(tb => {
+            const Icon = tb.icon;
+            const active = tab === tb.id;
+            return (
+              <button key={tb.id} onClick={() => setTab(tb.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+                  active ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'
+                }`}>
+                <Icon size={15} strokeWidth={1.8} /><span className="font-medium">{tb.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
+
+      <div className="flex-1 overflow-y-auto p-7">
+        <div className="max-w-3xl space-y-5">
+          {tab === 'general' && (
+            <>
+              <SettingsCard title={t('s_general')} desc="Basic preferences for your POS">
+                <SettingsField label={t('language')} hint="Interface language">
+                  <Select value={lang} onChange={setLang} options={[{ value: 'en', label: 'English' }, { value: 'fr', label: 'Français' }]} width="w-40" />
+                </SettingsField>
+                <SettingsField label={t('currency')} hint="Used throughout the system">
+                  <Select value={settings.currency} onChange={update('currency')} options={[
+                    { value: 'XAF', label: 'FCFA (XAF)' }, { value: 'EUR', label: 'Euro (EUR)' }, { value: 'USD', label: 'US Dollar (USD)' }, { value: 'NGN', label: 'Naira (NGN)' }
+                  ]} width="w-40" />
+                </SettingsField>
+                <SettingsField label={t('timezone')}>
+                  <Select value={settings.timezone} onChange={update('timezone')} options={[
+                    { value: 'Africa/Douala', label: 'Africa/Douala (WAT)' }, { value: 'Africa/Lagos', label: 'Africa/Lagos (WAT)' }, { value: 'Europe/Paris', label: 'Europe/Paris (CET)' }
+                  ]} width="w-56" />
+                </SettingsField>
+                <SettingsField label={t('date_format')}>
+                  <Select value={settings.dateFormat} onChange={update('dateFormat')} options={[
+                    { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' }, { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' }, { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD' }
+                  ]} width="w-40" />
+                </SettingsField>
+              </SettingsCard>
+            </>
+          )}
+
+          {tab === 'business' && (
+            <SettingsCard title={t('s_business')} desc="Information printed on receipts and invoices">
+              <SettingsField label={t('business_name')}>
+                <TextInput value={settings.businessName} onChange={update('businessName')} />
+              </SettingsField>
+              <SettingsField label={t('address')}>
+                <TextInput value={settings.address} onChange={update('address')} width="w-80" />
+              </SettingsField>
+              <SettingsField label={t('phone')}>
+                <TextInput value={settings.phone} onChange={update('phone')} />
+              </SettingsField>
+              <SettingsField label={t('email')}>
+                <TextInput value={settings.email} onChange={update('email')} />
+              </SettingsField>
+              <SettingsField label={t('website')}>
+                <TextInput value={settings.website} onChange={update('website')} />
+              </SettingsField>
+              <SettingsField label={t('rccm')} hint="Trade registry number">
+                <TextInput value={settings.rccm} onChange={update('rccm')} />
+              </SettingsField>
+              <SettingsField label={t('niu')} hint="Unique tax identification number">
+                <TextInput value={settings.niu} onChange={update('niu')} />
+              </SettingsField>
+            </SettingsCard>
+          )}
+
+          {tab === 'receipt' && (
+            <SettingsCard title={t('s_receipt')} desc="Customize how receipts appear and print">
+              <SettingsField label={t('receipt_header')} hint="Top line on the receipt">
+                <TextInput value={settings.receiptHeader} onChange={update('receiptHeader')} width="w-80" />
+              </SettingsField>
+              <SettingsField label={t('receipt_footer')}>
+                <TextInput value={settings.receiptFooter} onChange={update('receiptFooter')} width="w-80" />
+              </SettingsField>
+              <SettingsField label={t('paper_width')}>
+                <Select value={settings.paperWidth} onChange={update('paperWidth')} options={[
+                  { value: '58', label: '58mm (compact)' }, { value: '80', label: '80mm (standard)' }
+                ]} width="w-44" />
+              </SettingsField>
+              <SettingsField label={t('show_logo')}>
+                <Toggle checked={settings.showLogo} onChange={update('showLogo')} />
+              </SettingsField>
+              <SettingsField label={t('show_qr')} hint="Required for DGI e-invoice compliance">
+                <Toggle checked={settings.showQR} onChange={update('showQR')} />
+              </SettingsField>
+              <SettingsField label={t('show_loyalty')}>
+                <Toggle checked={settings.showLoyalty} onChange={update('showLoyalty')} />
+              </SettingsField>
+            </SettingsCard>
+          )}
+
+          {tab === 'tax' && (
+            <>
+              <SettingsCard title={t('s_tax')} desc="TVA and tax-related settings for Cameroon">
+                <SettingsField label={t('tva_rate')} hint="Standard rate for Cameroon: 19.25%">
+                  <div className="flex items-center gap-2">
+                    <TextInput value={settings.tvaRate} onChange={update('tvaRate')} width="w-24" />
+                    <span className="text-sm text-stone-500">%</span>
+                  </div>
+                </SettingsField>
+                <SettingsField label={t('tva_included')} hint="Product prices already contain TVA">
+                  <Toggle checked={settings.tvaIncluded} onChange={update('tvaIncluded')} />
+                </SettingsField>
+                <SettingsField label={t('tax_id_print')}>
+                  <Toggle checked={settings.taxIdPrint} onChange={update('taxIdPrint')} />
+                </SettingsField>
+              </SettingsCard>
+
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 rounded-2xl p-5 border border-amber-200/60">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck size={20} className="text-amber-700 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-stone-900 mb-1">DGI e-invoice compliance</h4>
+                    <p className="text-xs text-stone-600 leading-relaxed">Your receipts are configured for compliance with the Direction Générale des Impôts. Every transaction is logged with its tax ID and verifiable QR code.</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {tab === 'payments' && (
+            <SettingsCard title={t('s_payments')} desc="Choose which payment methods to accept">
+              <SettingsField label={t('accept_cash')} hint="Espèces / banknotes">
+                <Toggle checked={settings.acceptCash} onChange={update('acceptCash')} />
+              </SettingsField>
+              <SettingsField label={t('accept_card')} hint="Visa, Mastercard via terminal">
+                <Toggle checked={settings.acceptCard} onChange={update('acceptCard')} />
+              </SettingsField>
+              <SettingsField label={t('accept_mobile')} hint="MTN MoMo, Orange Money">
+                <Toggle checked={settings.acceptMobile} onChange={update('acceptMobile')} />
+              </SettingsField>
+            </SettingsCard>
+          )}
+
+          {tab === 'hardware' && (
+            <SettingsCard title={t('s_hardware')} desc="Connected devices at this station">
+              <SettingsField label={t('barcode_scanner')} hint="Honeywell Voyager 1450g">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-emerald-700 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Connected</span>
+                  <Toggle checked={settings.barcodeScanner} onChange={update('barcodeScanner')} />
+                </div>
+              </SettingsField>
+              <SettingsField label={t('receipt_printer')} hint="Epson TM-T20III · 80mm">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-emerald-700 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Connected</span>
+                  <Toggle checked={settings.receiptPrinter} onChange={update('receiptPrinter')} />
+                </div>
+              </SettingsField>
+              <SettingsField label={t('cash_drawer')} hint="Opens automatically on cash sales">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-emerald-700 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Connected</span>
+                  <Toggle checked={settings.cashDrawer} onChange={update('cashDrawer')} />
+                </div>
+              </SettingsField>
+              <SettingsField label={t('customer_display')} hint="Secondary screen facing the customer">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-stone-500 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-stone-300 rounded-full" /> Not detected</span>
+                  <Toggle checked={settings.customerDisplay} onChange={update('customerDisplay')} />
+                </div>
+              </SettingsField>
+            </SettingsCard>
+          )}
+
+          {tab === 'users' && (
+            <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+              <div className="px-6 py-4 border-b border-stone-200/80 flex items-center justify-between">
+                <div>
+                  <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('s_users')}</h3>
+                  <p className="text-xs text-stone-500 mt-0.5">Team members and their permissions</p>
+                </div>
+                <button onClick={() => { setEditingUser(null); setUserModal(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
+                  <Plus size={13} /> Add user
+                </button>
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+                    <th className="px-6 py-3">{t('user')}</th>
+                    <th className="px-3 py-3">{t('role')}</th>
+                    <th className="px-3 py-3">{t('stores')}</th>
+                    <th className="px-3 py-3">{t('last_active')}</th>
+                    <th className="px-6 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50/50">
+                      <td className="px-6 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-xs font-semibold">
+                            {u.name.split(' ').map(n => n[0]).join('')}
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-stone-900">{u.name}</div>
+                            <div className="text-xs text-stone-500">{u.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded-md ${
+                          u.role === 'admin' ? 'bg-rose-50 text-rose-700' :
+                          u.role === 'manager' ? 'bg-amber-50 text-amber-700' :
+                          'bg-sky-50 text-sky-700'
+                        }`}>
+                          {t(u.role)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-stone-700">{u.store}</td>
+                      <td className="px-3 py-3 text-xs text-stone-500">{u.lastActive}</td>
+                      <td className="px-6 py-3 text-right whitespace-nowrap">
+                        <button onClick={() => { setEditingUser(u); setUserModal(true); }} className="text-xs text-stone-500 hover:text-stone-900">{t('edit')}</button>
+                        <button onClick={() => resetPin(u)} className="text-xs text-stone-500 hover:text-emerald-700 ml-3">Reset PIN</button>
+                        {isAdmin && u.role !== 'admin' && u.id !== me?.id && (
+                          <button onClick={() => deleteUser(u)} className="text-xs text-rose-600 hover:text-rose-800 ml-3">Delete</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === 'notifications' && (
+            <SettingsCard title={t('s_notifications')} desc="Decide what alerts you want to receive">
+              <SettingsField label={t('low_stock_threshold')} hint="Alert when items fall below this level">
+                <div className="flex items-center gap-2">
+                  <TextInput value={settings.lowStockThreshold} onChange={update('lowStockThreshold')} width="w-24" />
+                  <span className="text-sm text-stone-500">units</span>
+                </div>
+              </SettingsField>
+              <SettingsField label={t('daily_summary')} hint="End-of-day report via email">
+                <Toggle checked={settings.dailySummary} onChange={update('dailySummary')} />
+              </SettingsField>
+              <SettingsField label={t('weekly_summary')} hint="Mondays at 8 AM">
+                <Toggle checked={settings.weeklySummary} onChange={update('weeklySummary')} />
+              </SettingsField>
+              <SettingsField label={t('payment_alerts')}>
+                <Toggle checked={settings.paymentAlerts} onChange={update('paymentAlerts')} />
+              </SettingsField>
+            </SettingsCard>
+          )}
+
+          {tab === 'data' && (
+            <SettingsCard title="Data & reset" desc="Start the shop's records over from scratch">
+              <div className="rounded-xl border border-rose-200 bg-rose-50/40 p-4">
+                <h4 className="font-medium text-rose-700 flex items-center gap-2 mb-1"><AlertTriangle size={15} /> Clear all data</h4>
+                <p className="text-xs text-stone-600 max-w-lg mb-3">
+                  Permanently deletes all products, stock movements, purchase orders, sales history, customers,
+                  suppliers, expenses, shifts and employees — and every other login account — so the inventory,
+                  dashboard and customer records all start from zero. Only your own account and settings are kept.
+                  This cannot be undone.
+                </p>
+                <button onClick={clearAllData} className="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700">Clear all data</button>
+              </div>
+            </SettingsCard>
+          )}
+
+          {/* Save bar */}
+          <div className="sticky bottom-0 bg-stone-50/95 backdrop-blur -mx-7 px-7 py-4 border-t border-stone-200/60 flex items-center justify-end gap-2 mt-6">
+            <button onClick={cancelSettings} className="px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100 rounded-lg">{t('cancel')}</button>
+            <button onClick={saveSettings} className="flex items-center gap-2 px-4 py-2 bg-emerald-900 text-white rounded-lg text-sm font-medium hover:bg-emerald-800 shadow-sm">
+              <Save size={15} />{t('save_changes')}
+            </button>
+          </div>
+        </div>
+      </div>
+      <UserForm open={userModal} onClose={() => setUserModal(false)} initial={editingUser} />
+
+      <Modal open={!!pinTarget} onClose={() => setPinTarget(null)} title={pinTarget ? `Reset PIN — ${pinTarget.name}` : 'Reset PIN'}
+        footer={<>
+          <GhostBtn onClick={() => setPinTarget(null)}>Cancel</GhostBtn>
+          <PrimaryBtn onClick={submitPin}>Save PIN</PrimaryBtn>
+        </>}>
+        <p className="text-sm text-stone-600 mb-3">Enter a new 4–6 digit login PIN for this user.</p>
+        <input
+          autoFocus
+          type="text" inputMode="numeric" maxLength={6}
+          value={newPin}
+          onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
+          onKeyDown={(e) => { if (e.key === 'Enter') submitPin(); }}
+          placeholder="e.g. 1234"
+          className="w-full px-3 py-2.5 bg-white border border-stone-200 rounded-lg text-lg tracking-widest text-center focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+      </Modal>
+    </div>
+  );
+};
+
+// ============ MAIN APP ============
+// ============ SHIFTS VIEW ============
+const ShiftsView = () => {
+  const { t } = useT();
+  const { user } = useAuth();
+  const { shifts, activeShifts, myShift, clockIn, clockOut } = useShifts();
+
+  const isManager = user?.role === 'manager' || user?.role === 'admin';
+
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+  const duration = (a, b) => {
+    const end = b ? new Date(b).getTime() : Date.now();
+    const ms = end - new Date(a).getTime();
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return `${h}h ${m}m`;
+  };
+  const hoursFor = (a, b) => {
+    const end = b ? new Date(b).getTime() : Date.now();
+    return (end - new Date(a).getTime()) / 3600000;
+  };
+  const initials = (name) => (name || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+  // History the current person is allowed to see: managers/admins see everyone;
+  // a cashier sees only their own shifts.
+  const visibleShifts = isManager ? shifts : shifts.filter(s => String(s.employeeId) === String(user?.id));
+
+  const exportTimesheet = () => {
+    const rows = [['Employee', 'Role', 'Date', 'Clock in', 'Clock out', 'Hours', 'Status']];
+    visibleShifts.forEach(s => {
+      rows.push([
+        s.name, s.role,
+        new Date(s.clockIn).toISOString().slice(0, 10),
+        new Date(s.clockIn).toISOString(),
+        s.clockOut ? new Date(s.clockOut).toISOString() : '',
+        hoursFor(s.clockIn, s.clockOut).toFixed(2),
+        s.clockOut ? 'Completed' : 'Active',
+      ]);
+    });
+    downloadCsv(`timesheet-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      {/* Your own clock card — everyone sees only this for themselves */}
+      <div className="bg-white rounded-2xl border border-stone-200/80 p-6">
+        <div className="text-[11px] uppercase tracking-widest text-stone-400 font-medium mb-4">Your shift</div>
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-800 flex items-center justify-center text-white text-lg font-semibold shadow-sm">
+            {initials(user?.name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-lg font-medium text-stone-900">{user?.name}</div>
+            {myShift ? (
+              <div className="text-sm text-emerald-700 flex items-center gap-1.5 mt-0.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                On the clock since {fmtTime(myShift.clockIn)} · {duration(myShift.clockIn)}
+              </div>
+            ) : (
+              <div className="text-sm text-stone-400 mt-0.5">You are off the clock</div>
+            )}
+          </div>
+          {myShift ? (
+            <button onClick={clockOut} className="px-5 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-2">
+              <ArrowUpLeft size={16} /> Clock out
+            </button>
+          ) : (
+            <button onClick={clockIn} className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white text-sm font-medium hover:bg-emerald-800 flex items-center gap-2">
+              <ArrowDownLeft size={16} /> Clock in
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Managers & admins can VIEW who is on duty (read-only — no clocking others) */}
+      {isManager && (
+        <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+          <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
+            <h3 className="font-semibold text-stone-900">On duty now</h3>
+            <span className="text-xs text-stone-500">{activeShifts.length} on the clock</span>
+          </div>
+          {activeShifts.length === 0 ? (
+            <div className="p-6 text-sm text-stone-400 text-center">Nobody is clocked in right now.</div>
+          ) : (
+            <div className="divide-y divide-stone-100">
+              {activeShifts.map(s => (
+                <div key={s.id} className="flex items-center gap-4 p-4">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center text-white text-sm font-semibold">{initials(s.name)}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-stone-900">{s.name}</div>
+                    <div className="text-xs text-stone-500 capitalize">{s.role}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-emerald-700 font-medium flex items-center gap-1 justify-end"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Active</div>
+                    <div className="text-xs text-stone-500">Since {fmtTime(s.clockIn)} · {duration(s.clockIn)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Shift history — own for cashiers, everyone for managers/admins */}
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
+          <h3 className="font-semibold text-stone-900">{isManager ? 'Shift history' : 'Your shift history'}</h3>
+          <button onClick={exportTimesheet} className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5"><Download size={13} /> Export CSV</button>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-xs text-stone-500 bg-stone-50/60">
+            <tr>
+              {isManager && <th className="text-left font-medium px-5 py-3">Employee</th>}
+              <th className="text-left font-medium px-5 py-3">Date</th>
+              <th className="text-left font-medium px-5 py-3">Clock in</th>
+              <th className="text-left font-medium px-5 py-3">Clock out</th>
+              <th className="text-left font-medium px-5 py-3">Duration</th>
+              <th className="text-left font-medium px-5 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {visibleShifts.length === 0 ? (
+              <tr><td colSpan={isManager ? 6 : 5} className="px-5 py-8 text-center text-stone-400">No shifts recorded yet.</td></tr>
+            ) : visibleShifts.map(s => (
+              <tr key={s.id}>
+                {isManager && (
+                  <td className="px-5 py-3">
+                    <div className="font-medium text-stone-900">{s.name}</div>
+                    <div className="text-xs text-stone-500 capitalize">{s.role}</div>
+                  </td>
+                )}
+                <td className="px-5 py-3 text-stone-600">{fmtDate(s.clockIn)}</td>
+                <td className="px-5 py-3 text-stone-600">{fmtTime(s.clockIn)}</td>
+                <td className="px-5 py-3 text-stone-600">{fmtTime(s.clockOut)}</td>
+                <td className="px-5 py-3 text-stone-600">{duration(s.clockIn, s.clockOut)}</td>
+                <td className="px-5 py-3">
+                  {s.clockOut
+                    ? <span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-600">Completed</span>
+                    : <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800">Active</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default function DialloPOS() {
+  const [lang, setLang] = useState('en');
+  const t = (k) => TRANSLATIONS[lang]?.[k] ?? TRANSLATIONS.en[k] ?? k;
+
+  const titles = {
+    pos: { title: t('checkout'), sub: t('sub_pos') },
+    dashboard: { title: t('dashboard'), sub: t('sub_dash') },
+    inventory: { title: t('inventory'), sub: t('sub_inv') },
+    customers: { title: t('customers'), sub: t('sub_cust') },
+    stores: { title: t('stores'), sub: t('sub_stores') },
+    reports: { title: t('reports'), sub: t('sub_reports') },
+    expenses: { title: t('expenses') || 'Expenses', sub: 'Record and review business expenses' },
+    settings: { title: t('settings'), sub: t('sub_settings') },
+    shifts: { title: t('shifts') || 'Shifts', sub: t('sub_shifts') || 'Track employee clock-in and clock-out' },
+  };
+
+  const fallback = {
+    products: PRODUCTS.map(p => ({ ...p, name_fr: PRODUCT_NAMES_FR[p.id] || '' })),
+    customers: CUSTOMERS,
+    suppliers: SUPPLIERS,
+    purchaseOrders: PURCHASE_ORDERS,
+    stockMovements: STOCK_MOVEMENTS,
+    users: USERS_DATA,
+    employees: DEFAULT_EMPLOYEES,
+    shifts: [
+      { id: 1, employeeId: 2, name: 'Ousmane Diallo', role: 'Manager', clockIn: new Date(Date.now() - 4 * 3600e3).toISOString(), clockOut: null },
+      { id: 2, employeeId: 3, name: 'Awa Sow', role: 'Cashier', clockIn: new Date(Date.now() - 26 * 3600e3).toISOString(), clockOut: new Date(Date.now() - 18 * 3600e3).toISOString() },
+    ],
+    settings: {},
+  };
+
+  return (
+    <ToastProvider>
+      <AuthProvider>
+        <DataProvider fallback={fallback}>
+          <LangContext.Provider value={{ lang, setLang, t }}>
+            <RoleProvider>
+              <ShiftProvider>
+                <AuthGate titles={titles} />
+              </ShiftProvider>
+            </RoleProvider>
+          </LangContext.Provider>
+        </DataProvider>
+      </AuthProvider>
+    </ToastProvider>
+  );
+}
+
+// Shows the login screen until a valid session exists, then the app.
+function AuthGate({ titles }) {
+  const { user, checking } = useAuth();
+  if (checking) {
+    return <div className="min-h-screen flex items-center justify-center bg-stone-50 text-stone-400 text-sm">Loading…</div>;
+  }
+  if (!user) return <LoginScreen />;
+  return <DialloPOSShell titles={titles} />;
+}
+
+// ============ EXPENSES ============
+const EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Salaries', 'Supplies', 'Transport', 'Maintenance', 'Taxes', 'Marketing', 'Other'];
+
+const ExpensesView = () => {
+  const { online } = useData();
+  const { can } = useRole();
+  const { toast } = useToast();
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const blank = { date: today, category: 'Rent', payee: '', amount: '', method: 'cash', note: '' };
+  const [form, setForm] = useState(blank);
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const load = async () => {
+    if (!online) return;
+    setLoading(true);
+    try { setExpenses(await api.getExpenses()); }
+    catch (e) { toast(e.message, 'error'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, [online]); // eslint-disable-line
+
+  const add = async () => {
+    if (!form.amount || Number(form.amount) <= 0) { toast('Enter an amount', 'error'); return; }
+    try {
+      if (online) {
+        const saved = await api.createExpense({ ...form, amount: Number(form.amount) });
+        setExpenses(list => [saved, ...list]);
+      } else {
+        setExpenses(list => [{ ...form, id: Date.now(), amount: Number(form.amount) }, ...list]);
+      }
+      toast('Expense recorded');
+      setForm({ ...blank, date: form.date });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const remove = async (id) => {
+    if (!window.confirm('Delete this expense?')) return;
+    try {
+      if (online) await api.deleteExpense(id);
+      setExpenses(list => list.filter(x => x.id !== id));
+      toast('Expense deleted');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const total = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const exportCsv = () => {
+    const rows = [['Date', 'Category', 'Payee', 'Amount (FCFA)', 'Method', 'Note', 'Recorded by']];
+    expenses.forEach(e => rows.push([e.date, e.category, e.payee, e.amount, e.method, e.note, e.createdBy || '']));
+    rows.push([]); rows.push(['', '', 'TOTAL', total]);
+    downloadCsv(`expenses-${today}.csv`, rows);
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-stone-50/30 p-5 md:p-7">
+      {can.expenses && (
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
+          <h3 className="font-serif text-lg text-stone-900 mb-4" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Record an expense</h3>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <div><label className="block text-[11px] text-stone-500 mb-1">Date</label>
+              <input type="date" value={form.date} max={today} onChange={set('date')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Category</label>
+              <select value={form.category} onChange={set('category')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
+                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Payee</label>
+              <input value={form.payee} onChange={set('payee')} placeholder="Who paid" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Amount (FCFA)</label>
+              <input type="number" value={form.amount} onChange={set('amount')} placeholder="0" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Method</label>
+              <select value={form.method} onChange={set('method')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
+                <option value="cash">Cash</option><option value="mobile">Mobile money</option><option value="bank">Bank</option>
+              </select></div>
+            <div className="flex items-end"><button onClick={add} className="w-full px-3 py-2 rounded-lg bg-emerald-900 text-white text-sm font-medium hover:bg-emerald-800">Add</button></div>
+          </div>
+          <div className="mt-3"><label className="block text-[11px] text-stone-500 mb-1">Note (optional)</label>
+            <input value={form.note} onChange={set('note')} placeholder="Description" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-stone-900">Expenses</h3>
+            <p className="text-xs text-stone-500 mt-0.5">Total recorded: <span className="font-medium text-rose-700">{fmt(total)}</span></p>
+          </div>
+          <button onClick={exportCsv} className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5"><Download size={13} /> Export CSV</button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-stone-500 bg-stone-50/60">
+              <tr>
+                <th className="text-left font-medium px-5 py-3">Date</th>
+                <th className="text-left font-medium px-5 py-3">Category</th>
+                <th className="text-left font-medium px-5 py-3">Payee</th>
+                <th className="text-left font-medium px-5 py-3">Method</th>
+                <th className="text-right font-medium px-5 py-3">Amount</th>
+                {can.expenses && <th className="px-5 py-3"></th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {expenses.length === 0 ? (
+                <tr><td colSpan={can.expenses ? 6 : 5} className="px-5 py-8 text-center text-stone-400">{loading ? 'Loading…' : 'No expenses recorded yet.'}</td></tr>
+              ) : expenses.map(e => (
+                <tr key={e.id}>
+                  <td className="px-5 py-3 text-stone-600">{e.date}</td>
+                  <td className="px-5 py-3"><span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-700">{e.category}</span></td>
+                  <td className="px-5 py-3 text-stone-700">{e.payee || '—'}{e.note ? <span className="block text-xs text-stone-400">{e.note}</span> : null}</td>
+                  <td className="px-5 py-3 text-stone-600 capitalize">{e.method}</td>
+                  <td className="px-5 py-3 text-right font-medium text-stone-900">{fmt(e.amount)}</td>
+                  {can.expenses && <td className="px-5 py-3 text-right"><button onClick={() => remove(e.id)} className="text-xs text-stone-400 hover:text-rose-600">Delete</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+function DialloPOSShell({ titles }) {
+  const { can } = useRole();
+  const { lang } = useT();
+  const { online, products: liveProducts, customers: liveCustomers } = useData();
+  const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
+  const customers = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
+  const firstView = (c) => ['pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'stores', 'shifts'].find(k => c[k]) || 'shifts';
+  const [view, setView] = useState(() => firstView(can));
+  const [mobileNav, setMobileNav] = useState(false);
+  // If the current role loses access to the active view, fall back to its first allowed view.
+  React.useEffect(() => { if (!can[view]) setView(firstView(can)); }, [can, view]);
+  const go = (v) => { setView(v); setMobileNav(false); };
+
+  const guarded = (key, label, El) => can[key] ? <El /> : <AccessDenied feature={label} />;
+
+  // These three subtitles quote live counts in the static translation strings — replace
+  // them with the real numbers instead of letting the demo figures show forever.
+  const lowStockCount = products.filter(p => p.stock < 10).length;
+  const loyaltyCount = customers.filter(c => c.tier && c.tier !== 'Bronze').length;
+  const dynamicSub = {
+    inventory: lang === 'fr'
+      ? `${products.length} produits · ${lowStockCount} alertes`
+      : `${products.length} products · ${lowStockCount} alerts`,
+    customers: lang === 'fr'
+      ? `${customers.length} clients · ${loyaltyCount} membres fidélité`
+      : `${customers.length} customers · ${loyaltyCount} loyalty members`,
+    stores: lang === 'fr' ? `${STORES.length} emplacements actifs` : `${STORES.length} active locations`,
+  };
+  const subtitleFor = (v) => dynamicSub[v] ?? titles[v].sub;
+
+  return (
+    <div className="h-screen w-full flex bg-stone-100 text-stone-900 relative overflow-hidden" style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        * { -webkit-font-smoothing: antialiased; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
+      `}</style>
+
+      {/* Mobile backdrop when the sidebar is open */}
+      {mobileNav && <div onClick={() => setMobileNav(false)} className="fixed inset-0 bg-stone-900/40 z-30 md:hidden" />}
+
+      <Sidebar view={view} setView={go} mobileNav={mobileNav} closeNav={() => setMobileNav(false)} />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <TopBar title={titles[view].title} subtitle={subtitleFor(view)} onMenu={() => setMobileNav(true)} />
+        {view === 'pos' && (can.pos ? <POSView /> : <AccessDenied feature="Checkout" />)}
+        {view === 'dashboard' && guarded('dashboard', 'Dashboard & Financials', DashboardView)}
+        {view === 'inventory' && guarded('inventory', 'Inventory', InventoryView)}
+        {view === 'customers' && guarded('customers', 'Customers', CustomersView)}
+        {view === 'stores' && guarded('stores', 'Stores', StoresView)}
+        {view === 'reports' && guarded('reports', 'Reports', ReportsView)}
+        {view === 'expenses' && guarded('expenses', 'Expenses', ExpensesView)}
+        {view === 'settings' && guarded('settings', 'Settings & Users', SettingsView)}
+        {view === 'shifts' && <ShiftsView />}
+      </div>
+    </div>
+  );
+}
