@@ -168,7 +168,8 @@ CREATE TABLE IF NOT EXISTS orders (
   total     INTEGER,
   method    TEXT,
   cashier   TEXT,
-  createdAt TEXT
+  createdAt TEXT,
+  clientOrderId TEXT
 );
 
 CREATE TABLE IF NOT EXISTS order_items (
@@ -196,7 +197,8 @@ CREATE TABLE IF NOT EXISTS expenses (
   method    TEXT,
   note      TEXT,
   createdBy TEXT,
-  createdAt TEXT
+  createdAt TEXT,
+  clientId  TEXT
 );
 `);
 
@@ -232,6 +234,25 @@ try {
   if (!ocols.includes('cost')) db.exec('ALTER TABLE order_items ADD COLUMN cost INTEGER DEFAULT 0');
 } catch (e) {
   console.warn('cost-column migration skipped:', e.message);
+}
+
+// Ensure orders.clientOrderId exists (lets a retried/offline-queued checkout
+// be deduplicated instead of creating a second sale) and is unique.
+try {
+  const ordcols = db.prepare('PRAGMA table_info(orders)').all().map(c => c.name);
+  if (!ordcols.includes('clientOrderId')) db.exec('ALTER TABLE orders ADD COLUMN clientOrderId TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_clientOrderId ON orders(clientOrderId)');
+} catch (e) {
+  console.warn('clientOrderId migration skipped:', e.message);
+}
+
+// Same idempotency mechanism as orders, for offline-queued expense entries.
+try {
+  const expcols = db.prepare('PRAGMA table_info(expenses)').all().map(c => c.name);
+  if (!expcols.includes('clientId')) db.exec('ALTER TABLE expenses ADD COLUMN clientId TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_clientId ON expenses(clientId)');
+} catch (e) {
+  console.warn('expenses clientId migration skipped:', e.message);
 }
 
 export default db;

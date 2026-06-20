@@ -257,8 +257,20 @@ r.post('/shifts/clock-out', requireAuth, h((req, res) => {
 // A single transaction: create the order, store its line items,
 // decrement product stock, log stock-out movements, bump customer stats.
 r.post('/orders', h((req, res) => {
-  const { items = [], customerId = null, method = 'cash', cashier = '', discount = 0, tva = 0 } = req.body;
+  const { items = [], customerId = null, method = 'cash', cashier = '', discount = 0, tva = 0, clientOrderId = null } = req.body;
   if (!items.length) throw new Error('cannot checkout an empty cart');
+
+  // Idempotency: a retried or offline-queued checkout sends the same
+  // clientOrderId. If we already recorded it, return that sale instead of
+  // creating a second one (e.g. the connection dropped after the order
+  // saved but before the success response reached the cashier's browser).
+  if (clientOrderId) {
+    const existing = db.prepare('SELECT * FROM orders WHERE clientOrderId=?').get(clientOrderId);
+    if (existing) {
+      existing.items = db.prepare('SELECT * FROM order_items WHERE orderId=?').all(existing.id);
+      return res.status(200).json(existing);
+    }
+  }
 
   const subtotal = items.reduce((s, it) => s + it.price * it.qty, 0);
   const total = Math.round(subtotal - discount + tva);
@@ -268,8 +280,8 @@ r.post('/orders', h((req, res) => {
 
   const tx = db.transaction(() => {
     const orderInfo = db.prepare(
-      'INSERT INTO orders (invoiceNo,customerId,subtotal,discount,tva,total,method,cashier,createdAt) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run(invoiceNo, customerId, subtotal, Math.round(discount), Math.round(tva), total, method, cashier, createdAt);
+      'INSERT INTO orders (invoiceNo,customerId,subtotal,discount,tva,total,method,cashier,createdAt,clientOrderId) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    ).run(invoiceNo, customerId, subtotal, Math.round(discount), Math.round(tva), total, method, cashier, createdAt, clientOrderId);
     const orderId = orderInfo.lastInsertRowid;
 
     const itemIns = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty) VALUES (?,?,?,?,?,?,?)');
@@ -324,11 +336,19 @@ r.get('/expenses', requireAuth, h((req, res) => {
 }));
 
 r.post('/expenses', requireAuth, requireRole('admin', 'manager', 'accountant'), h((req, res) => {
-  const { date, category = '', payee = '', amount, method = 'cash', note = '' } = req.body || {};
+  const { date, category = '', payee = '', amount, method = 'cash', note = '', clientId = null } = req.body || {};
   if (!date || amount == null) throw new Error('date and amount are required');
+
+  // Same idempotency pattern as orders: a retried/offline-queued expense
+  // carries the same clientId, so a retry can't double-record it.
+  if (clientId) {
+    const existing = db.prepare('SELECT * FROM expenses WHERE clientId=?').get(clientId);
+    if (existing) return res.status(200).json(existing);
+  }
+
   const info = db.prepare(
-    'INSERT INTO expenses (date,category,payee,amount,method,note,createdBy,createdAt) VALUES (?,?,?,?,?,?,?,?)'
-  ).run(date, category, payee, Math.round(Number(amount)), method, note, req.user.name, new Date().toISOString());
+    'INSERT INTO expenses (date,category,payee,amount,method,note,createdBy,createdAt,clientId) VALUES (?,?,?,?,?,?,?,?,?)'
+  ).run(date, category, payee, Math.round(Number(amount)), method, note, req.user.name, new Date().toISOString(), clientId);
   res.status(201).json(db.prepare('SELECT * FROM expenses WHERE id=?').get(info.lastInsertRowid));
 }));
 
