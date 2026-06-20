@@ -7,7 +7,7 @@
 //  • Entity forms (Product, Supplier, User, Purchase Order).
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { X, CheckCircle2, AlertTriangle, Info, ShieldCheck, Delete, UserCircle2 } from 'lucide-react';
-import api, { imageUrl, setToken, getToken } from './api.js';
+import api, { imageUrl, setToken, getToken, getPendingMutations, queuePendingMutation, flushPendingMutations } from './api.js';
 
 /* ---------------- CSV export ---------------- */
 export function downloadCsv(filename, rows) {
@@ -216,6 +216,7 @@ export function DataProvider({ fallback, children }) {
   });
   const [online, setOnline] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [pendingSyncCount, setPendingSyncCount] = useState(() => getPendingMutations().length);
 
   const refresh = useCallback(async () => {
     try {
@@ -237,12 +238,37 @@ export function DataProvider({ fallback, children }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // A checkout/clock-in/clock-out/expense that couldn't reach the backend
+  // queues itself instead of being lost. Try to flush that queue: once on
+  // mount, periodically as a safety net (the `online` flag above is only as
+  // fresh as the last refresh, not a live connection monitor), and
+  // immediately when the OS reports the network came back.
+  useEffect(() => {
+    const tryFlush = async () => {
+      if (getPendingMutations().length === 0) return;
+      const { synced } = await flushPendingMutations();
+      setPendingSyncCount(getPendingMutations().length);
+      if (synced > 0) refresh();
+    };
+    tryFlush();
+    const id = setInterval(tryFlush, 20000);
+    window.addEventListener('online', tryFlush);
+    return () => { clearInterval(id); window.removeEventListener('online', tryFlush); };
+  }, [refresh]);
+
+  // Used when checkout/clock-in/clock-out/an expense can't reach the
+  // backend right now — queues it instead of losing it.
+  const queueMutation = (type, payload) => {
+    queuePendingMutation(type, payload);
+    setPendingSyncCount(getPendingMutations().length);
+  };
+
   // Generic local-state patch helpers so the UI updates instantly,
   // whether or not the backend call succeeds.
   const patch = (key, fn) => setState(prev => ({ ...prev, [key]: fn(prev[key]) }));
 
   const value = {
-    ...state, online, loading, refresh, patch, setState,
+    ...state, online, loading, refresh, patch, setState, pendingSyncCount, queueMutation,
     upsertProduct: (p) => patch('products', list => {
       const i = list.findIndex(x => x.id === p.id);
       return i >= 0 ? list.map(x => x.id === p.id ? p : x) : [...list, p];
@@ -271,7 +297,7 @@ export function DataProvider({ fallback, children }) {
 const CATS = ['cosmetics', 'wines', 'whiskey', 'school_materials', 'perfumes', 'icecream', 'shawarma'];
 
 export function ProductForm({ open, onClose, initial }) {
-  const { online, upsertProduct, patch } = useData();
+  const { upsertProduct, patch } = useData();
   const { toast } = useToast();
   const blank = { name: '', name_fr: '', category: 'cosmetics', price: 0, cost: 0, discount: 0, stock: 0, sku: '', emoji: '📦', image: null };
   const [form, setForm] = useState(initial || blank);
@@ -309,8 +335,9 @@ export function ProductForm({ open, onClose, initial }) {
     }
   };
 
-  // When a photo is chosen: read it as a base64 data URL, upload to the backend,
-  // and store the returned path. In offline mode we just keep the data URL.
+  // When a photo is chosen: read it as a base64 data URL and upload it.
+  // Inventory edits require connectivity (see note on `save` below), so this
+  // fails honestly offline rather than pretending the photo attached.
   const onPickImage = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -323,46 +350,45 @@ export function ProductForm({ open, onClose, initial }) {
         fr.onerror = () => rej(new Error('Could not read file'));
         fr.readAsDataURL(file);
       });
-      if (online) {
-        const { path } = await api.uploadImage(file.name, dataUrl);
-        setForm(f => ({ ...f, image: path }));
-      } else {
-        setForm(f => ({ ...f, image: dataUrl })); // demo mode: embed directly
-      }
+      const { path } = await api.uploadImage(file.name, dataUrl);
+      setForm(f => ({ ...f, image: path }));
       toast('Photo attached');
     } catch (err) {
-      toast(err.message, 'error');
+      toast(!err.status ? "Can't upload while offline — try again once connected" : err.message, 'error');
     } finally {
       setUploading(false);
     }
   };
 
+  // Inventory edits intentionally require connectivity rather than queueing:
+  // an offline edit replayed later could silently overwrite newer changes
+  // someone else made in the meantime, which is worse than asking for a retry.
   const save = async () => {
     const payload = { ...form, price: Number(form.price), cost: Number(form.cost || 0), discount: Number(form.discount || 0), stock: Number(form.stock) };
     if (!payload.sku) payload.sku = makeSku(payload.category);
     try {
-      if (online) {
-        const saved = initial?.id
-          ? await api.updateProduct(initial.id, payload)
-          : await api.createProduct(payload);
-        upsertProduct(saved);
-      } else {
-        upsertProduct({ ...payload, id: initial?.id || Date.now() });
-      }
+      const saved = initial?.id
+        ? await api.updateProduct(initial.id, payload)
+        : await api.createProduct(payload);
+      upsertProduct(saved);
       toast(initial?.id ? 'Product updated' : 'Product added');
       onClose();
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't save while offline — try again once connected" : e.message, 'error');
+    }
   };
 
   const remove = async () => {
     if (!initial?.id) return;
     if (!window.confirm(`Delete "${initial.name}"? This cannot be undone.`)) return;
     try {
-      if (online) await api.deleteProduct(initial.id);
+      await api.deleteProduct(initial.id);
       patch('products', list => list.filter(p => p.id !== initial.id));
       toast('Product deleted');
       onClose();
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't delete while offline — try again once connected" : e.message, 'error');
+    }
   };
 
   const preview = form.image ? imageUrl(form.image) : null;
@@ -440,21 +466,23 @@ export function ProductForm({ open, onClose, initial }) {
 }
 
 export function SupplierForm({ open, onClose, initial }) {
-  const { online, upsertSupplier } = useData();
+  const { upsertSupplier } = useData();
   const { toast } = useToast();
   const blank = { name: '', contact: '', phone: '', email: '', category: '', status: 'active', productsCount: 0 };
   const [form, setForm] = useState(initial || blank);
   useEffect(() => { setForm(initial || blank); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  // Requires connectivity — see note on ProductForm.save for why supplier
+  // edits aren't queued offline.
   const save = async () => {
     try {
-      const saved = online
-        ? (initial?.id ? await api.updateSupplier(initial.id, form) : await api.createSupplier(form))
-        : { ...form, id: initial?.id || Date.now() };
+      const saved = initial?.id ? await api.updateSupplier(initial.id, form) : await api.createSupplier(form);
       upsertSupplier(saved);
       toast(initial?.id ? 'Supplier updated' : 'Supplier added');
       onClose();
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't save while offline — try again once connected" : e.message, 'error');
+    }
   };
   return (
     <Modal open={open} onClose={onClose} title={initial?.id ? 'Edit supplier' : 'Add supplier'}
@@ -472,24 +500,26 @@ export function SupplierForm({ open, onClose, initial }) {
 }
 
 export function UserForm({ open, onClose, initial }) {
-  const { online, upsertUser } = useData();
+  const { upsertUser } = useData();
   const { toast } = useToast();
   const blank = { name: '', username: '', role: 'cashier', email: '', store: 'Central', pin: '1234' };
   const [form, setForm] = useState(initial || blank);
   useEffect(() => { setForm(initial ? { ...initial, pin: '' } : blank); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  // Requires connectivity — user management is security-sensitive and not
+  // something to queue blindly offline (see note on ProductForm.save).
   const save = async () => {
     if (!initial?.id && !/^\d{4,6}$/.test(String(form.pin || ''))) {
       toast('PIN must be 4–6 digits', 'error'); return;
     }
     try {
-      const saved = online
-        ? (initial?.id ? await api.updateUser(initial.id, form) : await api.createUser(form))
-        : { ...form, id: initial?.id || Date.now(), lastActive: 'Just now' };
+      const saved = initial?.id ? await api.updateUser(initial.id, form) : await api.createUser(form);
       upsertUser(saved);
       toast(initial?.id ? 'User updated' : 'User added');
       onClose();
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't save while offline — try again once connected" : e.message, 'error');
+    }
   };
   return (
     <Modal open={open} onClose={onClose} title={initial?.id ? 'Edit user' : 'Add user'}
@@ -511,23 +541,25 @@ export function UserForm({ open, onClose, initial }) {
 }
 
 export function POForm({ open, onClose }) {
-  const { online, suppliers, upsertPO } = useData();
+  const { suppliers, upsertPO } = useData();
   const { toast } = useToast();
   const blank = { supplierId: suppliers[0]?.id || null, items: 1, total: 0, status: 'draft' };
   const [form, setForm] = useState(blank);
   useEffect(() => { setForm({ ...blank, supplierId: suppliers[0]?.id || null }); }, [open]); // eslint-disable-line
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  // Requires connectivity — see note on ProductForm.save for why this isn't
+  // queued offline.
   const save = async () => {
     const sup = suppliers.find(s => String(s.id) === String(form.supplierId));
     const payload = { supplierId: Number(form.supplierId), supplier: sup?.name || '', items: Number(form.items), total: Number(form.total), status: form.status };
     try {
-      const saved = online
-        ? await api.createPurchaseOrder(payload)
-        : { ...payload, id: `PO-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000 + 1000)}`, date: new Date().toISOString().slice(0, 10) };
+      const saved = await api.createPurchaseOrder(payload);
       upsertPO(saved);
       toast('Purchase order created');
       onClose();
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't save while offline — try again once connected" : e.message, 'error');
+    }
   };
   return (
     <Modal open={open} onClose={onClose} title="Create purchase order"

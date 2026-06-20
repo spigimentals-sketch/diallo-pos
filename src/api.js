@@ -94,3 +94,63 @@ export const api = {
 };
 
 export default api;
+
+// --- Offline mutation queue ---
+// Floor-critical actions that can't be allowed to silently vanish when the
+// backend is unreachable: checkout, clocking in/out, recording an expense.
+// Each gets queued here instead of being lost, and retried automatically
+// once the connection is back. Every handler is safe to retry — either via
+// a clientId/clientOrderId the server dedupes on (order, expense), or
+// because the resulting state is naturally idempotent (clock in/out: an
+// "already clocked in" error on retry means it already worked, not that it
+// failed). Everything else in the app (products, suppliers, settings, user
+// management, edits/deletes) intentionally just fails honestly offline
+// instead — queueing an edit risks overwriting newer server-side data with
+// stale local data once it replays, which is a worse outcome than asking
+// someone to retry once they're back online.
+const PENDING_KEY = 'diallo_pending_mutations';
+
+const MUTATION_HANDLERS = {
+  order: { run: (p) => api.createOrder(p) },
+  clockIn: { run: () => api.clockIn(), alreadyDone: (e) => /already clocked in/i.test(e.message || '') },
+  clockOut: { run: () => api.clockOut(), alreadyDone: (e) => /not clocked in/i.test(e.message || '') },
+  expense: { run: (p) => api.createExpense(p) },
+};
+
+export function getPendingMutations() {
+  try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch { return []; }
+}
+function savePendingMutations(list) {
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify(list)); } catch {}
+}
+export function queuePendingMutation(type, payload) {
+  const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  savePendingMutations([...getPendingMutations(), { id, type, payload, queuedAt: new Date().toISOString() }]);
+  return id;
+}
+export function removePendingMutation(id) {
+  savePendingMutations(getPendingMutations().filter((m) => m.id !== id));
+}
+
+// Attempts to sync every queued mutation, in order. Stops on the first
+// connectivity failure (no point hammering while still offline) but a
+// genuine server rejection (e.g. bad data) doesn't block the rest of the
+// queue — it's left in place for a human to investigate rather than
+// silently dropped.
+export async function flushPendingMutations() {
+  let synced = 0, failing = 0;
+  for (const m of getPendingMutations()) {
+    const handler = MUTATION_HANDLERS[m.type];
+    if (!handler) { removePendingMutation(m.id); continue; }
+    try {
+      await handler.run(m.payload);
+      removePendingMutation(m.id);
+      synced++;
+    } catch (e) {
+      if (handler.alreadyDone?.(e)) { removePendingMutation(m.id); synced++; continue; }
+      if (!e.status) break; // still offline — retry the whole queue later
+      failing++;
+    }
+  }
+  return { synced, failing };
+}

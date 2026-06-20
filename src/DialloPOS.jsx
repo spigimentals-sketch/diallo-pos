@@ -295,7 +295,7 @@ const AccessDenied = ({ feature }) => (
 );
 
 const ShiftProvider = ({ children }) => {
-  const { shifts: liveShifts, online, patch, refresh } = useData();
+  const { shifts: liveShifts, patch, refresh, queueMutation } = useData();
   const { user } = useAuth();
   const { toast } = useToast();
   const shifts = liveShifts || [];
@@ -310,23 +310,37 @@ const ShiftProvider = ({ children }) => {
     ? { id: user.id, name: user.name, role: user.role }
     : (activeShifts.find(s => ['cashier', 'manager'].includes((s.role || '').toLowerCase())) || null);
 
-  // Clock the LOGGED-IN user in/out — never anyone else.
+  // Clock the LOGGED-IN user in/out — never anyone else. Always attempts the
+  // real request first (don't trust a possibly-stale online flag); only
+  // queue it for later sync if the backend genuinely can't be reached.
   const clockIn = async () => {
     if (!user) return;
-    if (online) {
-      try { const sh = await api.clockIn(); patch('shifts', list => [sh, ...list]); }
-      catch (e) { toast(e.message, 'error'); }
-    } else {
-      patch('shifts', list => [{ id: Date.now(), employeeId: user.id, name: user.name, role: user.role, clockIn: new Date().toISOString(), clockOut: null }, ...list]);
+    try {
+      const sh = await api.clockIn();
+      patch('shifts', list => [sh, ...list]);
+    } catch (e) {
+      if (!e.status) {
+        queueMutation('clockIn', {});
+        patch('shifts', list => [{ id: Date.now(), employeeId: user.id, name: user.name, role: user.role, clockIn: new Date().toISOString(), clockOut: null }, ...list]);
+        toast('Offline — clock-in saved on this device, will sync automatically once back online', 'info');
+      } else {
+        toast(e.message, 'error');
+      }
     }
   };
   const clockOut = async () => {
     if (!user) return;
-    if (online) {
-      try { await api.clockOut(); refresh(); }
-      catch (e) { toast(e.message, 'error'); }
-    } else {
-      patch('shifts', list => list.map(s => String(s.employeeId) === String(user.id) && !s.clockOut ? { ...s, clockOut: new Date().toISOString() } : s));
+    try {
+      await api.clockOut();
+      refresh();
+    } catch (e) {
+      if (!e.status) {
+        queueMutation('clockOut', {});
+        patch('shifts', list => list.map(s => String(s.employeeId) === String(user.id) && !s.clockOut ? { ...s, clockOut: new Date().toISOString() } : s));
+        toast('Offline — clock-out saved on this device, will sync automatically once back online', 'info');
+      } else {
+        toast(e.message, 'error');
+      }
     }
   };
 
@@ -534,7 +548,7 @@ const LangToggle = () => {
 
 const TopBar = ({ title, subtitle, children, onMenu }) => {
   const { lang } = useT();
-  const { products, online } = useData();
+  const { products, online, pendingSyncCount } = useData();
   const [open, setOpen] = useState(false);
   const lowStock = (products || []).filter(p => p.stock < 10);
   return (
@@ -577,6 +591,12 @@ const TopBar = ({ title, subtitle, children, onMenu }) => {
             </div>
           )}
         </div>
+        {pendingSyncCount > 0 && (
+          <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium whitespace-nowrap" title="Saved on this device while offline — will sync automatically">
+            <RefreshCw size={12} className="flex-shrink-0" />
+            {pendingSyncCount} pending sync
+          </div>
+        )}
         <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-medium whitespace-nowrap">
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${online ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`} />
           <span className="hidden sm:inline">Central · </span>{online ? 'Online' : 'Offline'}
@@ -852,7 +872,7 @@ const ScanModal = ({ open, onClose, onScan }) => {
 const POSView = () => {
   const { t, lang } = useT();
   const { activeCashier } = useShifts();
-  const { products: liveProducts, customers: liveCustomers, online, refresh, settings } = useData();
+  const { products: liveProducts, customers: liveCustomers, online, refresh, settings, queueMutation } = useData();
   const tvaRate = Number(settings?.tvaRate ?? 19.25) / 100;
   const { toast } = useToast();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
@@ -915,21 +935,32 @@ const POSView = () => {
 
   const completePayment = async () => {
     if (cart.length === 0 || !activeCashier) return;
+    // Identifies this exact checkout attempt so a retry (by us, automatically,
+    // once back online) can never create a second sale server-side — see the
+    // dedup check in POST /orders.
+    const clientOrderId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const payload = {
       items: cart.map(i => ({ id: i.id, name: i.name, sku: i.sku, price: i.price, qty: i.qty })),
       customerId: customer?.id || null,
-      method: paymentMethod, cashier: activeCashier.name, discount, tva,
+      method: paymentMethod, cashier: activeCashier.name, discount, tva, clientOrderId,
     };
     try {
-      if (online) {
-        const order = await api.createOrder(payload);
-        setLastInvoice(order.invoiceNo);
-        refresh(); // pull fresh stock levels + customer points
-      } else {
-        setLastInvoice('INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000));
-      }
+      const order = await api.createOrder(payload);
+      setLastInvoice(order.invoiceNo);
+      refresh(); // pull fresh stock levels + customer points
       setShowReceipt(true);
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      if (!e.status) {
+        // Couldn't reach the backend at all — don't lose the sale. Queue it
+        // here; it syncs automatically (and safely) once the connection is back.
+        queueMutation('order', payload);
+        setLastInvoice('INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000));
+        toast('Offline — sale saved on this device, will sync automatically once back online', 'info');
+        setShowReceipt(true);
+      } else {
+        toast(e.message, 'error');
+      }
+    }
   };
 
   const startNewOrder = () => { setCart([]); setShowReceipt(false); };
@@ -1612,12 +1643,16 @@ const PurchaseOrdersPanel = () => {
   const totalValue = POS.filter(p => p.status !== 'cancelled').reduce((s, p) => s + p.total, 0);
   const pending = POS.filter(p => ['sent', 'in-transit'].includes(p.status)).reduce((s, p) => s + p.total, 0);
 
+  // Requires connectivity — see note on ProductForm.save for why status
+  // changes aren't queued offline.
   const advance = async (po, next) => {
     try {
-      const saved = online ? await api.updatePurchaseOrder(po.id, { status: next }) : { ...po, status: next };
+      const saved = await api.updatePurchaseOrder(po.id, { status: next });
       upsertPO(saved);
       toast(`${po.id} → ${next}`);
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't update while offline — try again once connected" : e.message, 'error');
+    }
   };
   const exportPOs = () => {
     const rows = [['PO Number', 'Supplier', 'Date', 'Items', 'Total', 'Status']];
@@ -2398,24 +2433,29 @@ const SettingsView = () => {
   const isAdmin = me?.role === 'admin';
 
   // Admin: delete a cashier/manager account (never an admin, never yourself).
+  // Requires connectivity — see note on ProductForm.save in shared.jsx.
   const deleteUser = async (u) => {
     if (!window.confirm(`Delete ${u.name}'s account? They will no longer be able to sign in, and their shift records will be removed.`)) return;
     try {
-      if (online) await api.deleteUser(u.id);
+      await api.deleteUser(u.id);
       patch('users', list => list.filter(x => x.id !== u.id));
       patch('shifts', list => list.filter(s => String(s.employeeId) !== String(u.id)));
       toast('Account deleted');
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't delete while offline — try again once connected" : e.message, 'error');
+    }
   };
   // Admin/manager: open the reset-PIN dialog for a user.
   const resetPin = (u) => { setPinTarget(u); setNewPin(''); };
   const submitPin = async () => {
     if (!/^\d{4,6}$/.test(newPin)) { toast('PIN must be 4–6 digits', 'error'); return; }
     try {
-      if (online) await api.setUserPin(pinTarget.id, newPin);
+      await api.setUserPin(pinTarget.id, newPin);
       toast(`PIN reset for ${pinTarget.name}`);
       setPinTarget(null); setNewPin('');
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't reset PIN while offline — try again once connected" : e.message, 'error');
+    }
   };
 
   // Hydrate from the backend once it loads.
@@ -2426,21 +2466,26 @@ const SettingsView = () => {
     }
   }, [liveSettings]);
 
+  // Requires connectivity — see note on ProductForm.save in shared.jsx.
   const saveSettings = async () => {
     try {
-      if (online) await api.saveSettings(settings);
+      await api.saveSettings(settings);
       setSavedSnapshot(settings);
       toast('Settings saved');
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't save while offline — try again once connected" : e.message, 'error');
+    }
   };
   const clearAllData = async () => {
     if (!window.confirm('Clear ALL demo data — inventory, sales, dashboard, customers, suppliers, employees and other login accounts — so the shop starts from scratch?\n\nOnly your own account and settings are kept. It cannot be undone.')) return;
     if (!window.confirm('Are you absolutely sure? Every product, sale, customer, supplier, employee and other user login will be permanently deleted.')) return;
     try {
-      if (online) await api.clearData();
+      await api.clearData();
       toast('All demo data cleared — the app now starts from zero');
       refresh();
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      toast(!e.status ? "Can't clear data while offline — try again once connected" : e.message, 'error');
+    }
   };
   const cancelSettings = () => {
     if (savedSnapshot) setSettings(prev => ({ ...prev, ...savedSnapshot }));
@@ -2984,7 +3029,7 @@ function AuthGate({ titles }) {
 const EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Salaries', 'Supplies', 'Transport', 'Maintenance', 'Taxes', 'Marketing', 'Other'];
 
 const ExpensesView = () => {
-  const { online } = useData();
+  const { online, queueMutation } = useData();
   const { can } = useRole();
   const { toast } = useToast();
   const [expenses, setExpenses] = useState([]);
@@ -3005,21 +3050,29 @@ const ExpensesView = () => {
 
   const add = async () => {
     if (!form.amount || Number(form.amount) <= 0) { toast('Enter an amount', 'error'); return; }
+    const clientId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const payload = { ...form, amount: Number(form.amount), clientId };
     try {
-      if (online) {
-        const saved = await api.createExpense({ ...form, amount: Number(form.amount) });
-        setExpenses(list => [saved, ...list]);
-      } else {
-        setExpenses(list => [{ ...form, id: Date.now(), amount: Number(form.amount) }, ...list]);
-      }
+      const saved = await api.createExpense(payload);
+      setExpenses(list => [saved, ...list]);
       toast('Expense recorded');
       setForm({ ...blank, date: form.date });
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      if (!e.status) {
+        queueMutation('expense', payload);
+        setExpenses(list => [{ ...payload, id: Date.now() }, ...list]);
+        toast('Offline — expense saved on this device, will sync automatically once back online', 'info');
+        setForm({ ...blank, date: form.date });
+      } else {
+        toast(e.message, 'error');
+      }
+    }
   };
   const remove = async (id) => {
     if (!window.confirm('Delete this expense?')) return;
+    if (!online) { toast("Can't delete while offline — try again once connected", 'error'); return; }
     try {
-      if (online) await api.deleteExpense(id);
+      await api.deleteExpense(id);
       setExpenses(list => list.filter(x => x.id !== id));
       toast('Expense deleted');
     } catch (e) { toast(e.message, 'error'); }
