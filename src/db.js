@@ -150,12 +150,15 @@ CREATE TABLE IF NOT EXISTS employees (
 );
 
 CREATE TABLE IF NOT EXISTS shifts (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  employeeId INTEGER,
-  name       TEXT,
-  role       TEXT,
-  clockIn    TEXT,
-  clockOut   TEXT
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  employeeId   INTEGER,
+  name         TEXT,
+  role         TEXT,
+  clockIn      TEXT,
+  clockOut     TEXT,
+  expectedCash INTEGER,
+  countedCash  INTEGER,
+  cashVariance INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -254,5 +257,38 @@ try {
 } catch (e) {
   console.warn('expenses clientId migration skipped:', e.message);
 }
+
+// Per-shift cash reconciliation columns, for accountability at clock-out.
+try {
+  const shcols = db.prepare('PRAGMA table_info(shifts)').all().map(c => c.name);
+  if (!shcols.includes('expectedCash')) db.exec('ALTER TABLE shifts ADD COLUMN expectedCash INTEGER');
+  if (!shcols.includes('countedCash')) db.exec('ALTER TABLE shifts ADD COLUMN countedCash INTEGER');
+  if (!shcols.includes('cashVariance')) db.exec('ALTER TABLE shifts ADD COLUMN cashVariance INTEGER');
+} catch (e) {
+  console.warn('shifts cash-reconciliation migration skipped:', e.message);
+}
+
+// Accounts-payable columns on purchase orders: a due date and how much of
+// the total has been paid so far (outstanding = total - amountPaid).
+try {
+  const pocols = db.prepare('PRAGMA table_info(purchase_orders)').all().map(c => c.name);
+  if (!pocols.includes('dueDate')) db.exec('ALTER TABLE purchase_orders ADD COLUMN dueDate TEXT');
+  if (!pocols.includes('amountPaid')) db.exec('ALTER TABLE purchase_orders ADD COLUMN amountPaid INTEGER NOT NULL DEFAULT 0');
+} catch (e) {
+  console.warn('purchase_orders AP migration skipped:', e.message);
+}
+
+// Payment history against purchase orders (accounts-payable ledger).
+db.exec(`
+CREATE TABLE IF NOT EXISTS po_payments (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  purchaseOrderId TEXT NOT NULL,
+  amount          INTEGER NOT NULL,
+  method          TEXT,
+  note            TEXT,
+  createdBy       TEXT,
+  createdAt       TEXT
+);
+`);
 
 export default db;

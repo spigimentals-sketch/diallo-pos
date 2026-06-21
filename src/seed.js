@@ -45,8 +45,7 @@ const DEFAULT_SETTINGS = {
   website: 'www.diallo.cm', rccm: 'RC/YAO/2024/B/01234', niu: 'P012345678901G',
   receiptHeader: 'DIALLO Supermarché — Merci de votre visite', receiptFooter: 'Tous les retours sous 7 jours avec ticket de caisse',
   paperWidth: '80', showLogo: true, showQR: true, showLoyalty: true, tvaRate: '19.25', tvaIncluded: false,
-  taxIdPrint: true, acceptCash: true, acceptCard: true, acceptMobile: true, barcodeScanner: true,
-  receiptPrinter: true, cashDrawer: true, customerDisplay: false, lowStockThreshold: '10',
+  taxIdPrint: true, acceptCash: true, acceptCard: true, acceptMobile: true, lowStockThreshold: '10',
   dailySummary: true, weeklySummary: true, paymentAlerts: true,
 };
 

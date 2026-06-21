@@ -153,24 +153,56 @@ r.put('/suppliers/:id', h((req, res) => {
 }));
 
 // ---------------- PURCHASE ORDERS ----------------
-r.get('/purchase-orders', h((req, res) => res.json(db.prepare('SELECT * FROM purchase_orders ORDER BY date DESC').all())));
+// Accounts payable: every PO carries amountPaid, so `outstanding` is what's
+// still owed to that supplier. Computed on read rather than stored, so it
+// can never drift out of sync with recorded payments.
+const withOutstanding = (po) => po && { ...po, outstanding: po.total - (po.amountPaid || 0) };
+
+r.get('/purchase-orders', h((req, res) =>
+  res.json(db.prepare('SELECT * FROM purchase_orders ORDER BY date DESC').all().map(withOutstanding))
+));
 r.post('/purchase-orders', h((req, res) => {
-  const { supplierId = null, supplier = '', items = 0, total = 0, status = 'draft' } = req.body;
+  const { supplierId = null, supplier = '', items = 0, total = 0, status = 'draft', dueDate = null } = req.body;
   const year = new Date().getFullYear();
   const seq = (db.prepare('SELECT COUNT(*) AS n FROM purchase_orders').get().n + 146);
   const id = `PO-${year}-${String(seq).padStart(4, '0')}`;
   const date = new Date().toISOString().slice(0, 10);
-  db.prepare('INSERT INTO purchase_orders (id,supplierId,supplier,date,items,total,status) VALUES (?,?,?,?,?,?,?)')
-    .run(id, supplierId, supplier, date, items, total, status);
-  res.status(201).json(db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(id));
+  db.prepare('INSERT INTO purchase_orders (id,supplierId,supplier,date,items,total,status,dueDate,amountPaid) VALUES (?,?,?,?,?,?,?,?,0)')
+    .run(id, supplierId, supplier, date, items, total, status, dueDate);
+  res.status(201).json(withOutstanding(db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(id)));
 }));
 r.patch('/purchase-orders/:id', h((req, res) => {
   const cur = db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(req.params.id);
   if (!cur) throw new Error('PO not found');
   const status = req.body.status ?? cur.status;
-  db.prepare('UPDATE purchase_orders SET status=? WHERE id=?').run(status, req.params.id);
-  res.json(db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(req.params.id));
+  const dueDate = req.body.dueDate ?? cur.dueDate;
+  db.prepare('UPDATE purchase_orders SET status=?, dueDate=? WHERE id=?').run(status, dueDate, req.params.id);
+  res.json(withOutstanding(db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(req.params.id)));
 }));
+
+// Record a payment against a PO (accounts-payable ledger). Admin/manager
+// only — this moves real money against a supplier balance.
+r.post('/purchase-orders/:id/payments', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
+  const po = db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(req.params.id);
+  if (!po) throw new Error('PO not found');
+  const { amount, method = 'cash', note = '' } = req.body || {};
+  const amt = Math.round(Number(amount));
+  if (!amt || amt <= 0) throw new Error('amount must be a positive number');
+  const outstanding = po.total - (po.amountPaid || 0);
+  if (amt > outstanding) throw new Error(`Amount exceeds outstanding balance of ${outstanding}`);
+
+  const tx = db.transaction(() => {
+    db.prepare('INSERT INTO po_payments (purchaseOrderId,amount,method,note,createdBy,createdAt) VALUES (?,?,?,?,?,?)')
+      .run(po.id, amt, method, note, req.user.name, new Date().toISOString());
+    db.prepare('UPDATE purchase_orders SET amountPaid = amountPaid + ? WHERE id=?').run(amt, po.id);
+  });
+  tx();
+  res.status(201).json(withOutstanding(db.prepare('SELECT * FROM purchase_orders WHERE id=?').get(po.id)));
+}));
+
+r.get('/purchase-orders/:id/payments', h((req, res) =>
+  res.json(db.prepare('SELECT * FROM po_payments WHERE purchaseOrderId=? ORDER BY createdAt DESC').all(req.params.id))
+));
 
 // ---------------- STOCK MOVEMENTS ----------------
 r.get('/stock-movements', h((req, res) => res.json(db.prepare('SELECT * FROM stock_movements ORDER BY id DESC').all())));
@@ -245,11 +277,28 @@ r.post('/shifts/clock-in', requireAuth, h((req, res) => {
   res.status(201).json(db.prepare('SELECT * FROM shifts WHERE id=?').get(info.lastInsertRowid));
 }));
 
-// Clock OUT — always the authenticated user.
+// Clock OUT — always the authenticated user. Reconciles the cash drawer:
+// expectedCash is computed from this cashier's own cash-method sales during
+// the shift, compared against what they actually counted (countedCash, from
+// the clock-out prompt) to get an over/short variance for accountability.
+// countedCash is optional so this stays robust for offline-queued retries —
+// expectedCash is still recorded either way.
 r.post('/shifts/clock-out', requireAuth, h((req, res) => {
   const open = db.prepare('SELECT * FROM shifts WHERE employeeId=? AND clockOut IS NULL').get(req.user.id);
   if (!open) throw new Error('You are not clocked in');
-  db.prepare('UPDATE shifts SET clockOut=? WHERE id=?').run(new Date().toISOString(), open.id);
+  const clockOutAt = new Date().toISOString();
+  const { countedCash = null } = req.body || {};
+
+  const expectedCash = db.prepare(
+    `SELECT COALESCE(SUM(total),0) AS amount FROM orders
+     WHERE method='cash' AND cashier=? AND createdAt >= ? AND createdAt <= ?`
+  ).get(open.name, open.clockIn, clockOutAt).amount;
+
+  const counted = countedCash != null && countedCash !== '' ? Math.round(Number(countedCash)) : null;
+  const cashVariance = counted != null ? counted - expectedCash : null;
+
+  db.prepare('UPDATE shifts SET clockOut=?, expectedCash=?, countedCash=?, cashVariance=? WHERE id=?')
+    .run(clockOutAt, expectedCash, counted, cashVariance, open.id);
   res.json(db.prepare('SELECT * FROM shifts WHERE id=?').get(open.id));
 }));
 
@@ -378,13 +427,54 @@ r.post('/maintenance/clear-data', requireAuth, requireRole('admin'), h((req, res
 
 // ---------------- REPORTS ----------------
 // Simple aggregations the front-end can render or download.
+// `totals` is scoped to TODAY (it powers the Dashboard's "Today's sales" KPI
+// — it previously summed every order ever placed, which is a different and
+// much larger number than what the label claimed).
 r.get('/reports/sales', h((req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 90);
+  const since = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const daily = db.prepare(`
+    SELECT substr(createdAt,1,10) AS day, COUNT(*) AS orders, COALESCE(SUM(total),0) AS sales
+    FROM orders WHERE substr(createdAt,1,10) >= ? GROUP BY day ORDER BY day ASC
+  `).all(since);
+
+  const totals = db.prepare(
+    'SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue FROM orders WHERE substr(createdAt,1,10) = ?'
+  ).get(today);
+
+  // Real category breakdown for the same window (Dashboard's "By category" pie).
+  const byCategory = db.prepare(`
+    SELECT COALESCE(p.category, 'Other') AS category, COALESCE(SUM(oi.price*oi.qty),0) AS sales
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.orderId
+    LEFT JOIN products p ON p.id = oi.productId
+    WHERE substr(o.createdAt,1,10) >= ?
+    GROUP BY category ORDER BY sales DESC
+  `).all(since);
+
+  res.json({ daily, totals, byCategory });
+}));
+
+// Ranks products by actual profit contribution (not just units sold) —
+// answers "what's really making money" rather than "what's just busy".
+r.get('/reports/profitability', h((req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
   const rows = db.prepare(`
-    SELECT substr(createdAt,1,10) AS day, COUNT(*) AS orders, SUM(total) AS sales
-    FROM orders GROUP BY day ORDER BY day DESC LIMIT 30
+    SELECT productId, name, sku,
+           SUM(qty) AS unitsSold,
+           SUM(price*qty) AS revenue,
+           SUM(cost*qty) AS cost
+    FROM order_items
+    WHERE productId IS NOT NULL
+    GROUP BY productId
   `).all();
-  const totals = db.prepare('SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue FROM orders').get();
-  res.json({ daily: rows, totals });
+  const ranked = rows.map(r => {
+    const grossProfit = r.revenue - r.cost;
+    return { ...r, grossProfit, marginPct: r.revenue ? (grossProfit / r.revenue) * 100 : 0 };
+  }).sort((a, b) => b.grossProfit - a.grossProfit).slice(0, limit);
+  res.json(ranked);
 }));
 
 r.get('/reports/inventory', h((req, res) => {
@@ -474,6 +564,72 @@ r.get('/reports/z', h((req, res) => {
   const grossProfit = (margin.itemRevenue || 0) - (margin.itemCost || 0);
   res.json({ date, totals, byMethod, expectedCash: cashDrawer,
     margin: { revenue: margin.itemRevenue, cost: margin.itemCost, grossProfit } });
+}));
+
+// ---- Profit & Loss: combines sales margin with recorded expenses for a
+// date range. This is the one number an owner actually thinks in terms of —
+// "did I make money" — rather than scattered margin/expense reports. ----
+r.get('/reports/pnl', h((req, res) => {
+  const { f, t } = dayBounds(req.query.from, req.query.to);
+  const fromDate = req.query.from || new Date().toISOString().slice(0, 10);
+  const toDate = req.query.to || req.query.from || new Date().toISOString().slice(0, 10);
+
+  const margin = db.prepare(
+    `SELECT COALESCE(SUM(oi.price*oi.qty),0) AS revenue, COALESCE(SUM(oi.cost*oi.qty),0) AS cogs
+     FROM order_items oi JOIN orders o ON o.id = oi.orderId
+     WHERE o.createdAt >= ? AND o.createdAt <= ?`
+  ).get(f, t);
+
+  const grossProfit = margin.revenue - margin.cogs;
+  const grossMarginPct = margin.revenue ? (grossProfit / margin.revenue) * 100 : 0;
+
+  // expenses.date is a plain YYYY-MM-DD string (from the date input), unlike
+  // orders.createdAt which is a full timestamp — compare against the plain
+  // from/to dates, not the time-bounded f/t used for orders.
+  const expensesByCategory = db.prepare(
+    `SELECT category, COALESCE(SUM(amount),0) AS amount FROM expenses
+     WHERE date >= ? AND date <= ? GROUP BY category ORDER BY amount DESC`
+  ).all(fromDate, toDate);
+  const totalExpenses = expensesByCategory.reduce((s, e) => s + e.amount, 0);
+
+  const netProfit = grossProfit - totalExpenses;
+  const netMarginPct = margin.revenue ? (netProfit / margin.revenue) * 100 : 0;
+
+  res.json({
+    from: fromDate, to: toDate,
+    revenue: margin.revenue, cogs: margin.cogs, grossProfit, grossMarginPct,
+    expensesByCategory, totalExpenses, netProfit, netMarginPct,
+  });
+}));
+
+// ---- Monthly P&L trend, for a real month-over-month view ----
+r.get('/reports/pnl-trend', h((req, res) => {
+  const months = Math.min(Math.max(Number(req.query.months) || 6, 1), 24);
+  const rows = [];
+  const now = new Date();
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const f = `${monthStr}-01 00:00:00`;
+    const t = `${monthStr}-${String(lastDay).padStart(2, '0')} 23:59:59`;
+
+    const margin = db.prepare(
+      `SELECT COALESCE(SUM(oi.price*oi.qty),0) AS revenue, COALESCE(SUM(oi.cost*oi.qty),0) AS cogs
+       FROM order_items oi JOIN orders o ON o.id = oi.orderId
+       WHERE o.createdAt >= ? AND o.createdAt <= ?`
+    ).get(f, t);
+    const expenseTotal = db.prepare(
+      'SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE date >= ? AND date <= ?'
+    ).get(`${monthStr}-01`, `${monthStr}-${String(lastDay).padStart(2, '0')}`).amount;
+
+    const grossProfit = margin.revenue - margin.cogs;
+    rows.push({
+      month: monthStr, revenue: margin.revenue, cogs: margin.cogs, grossProfit,
+      expenses: expenseTotal, netProfit: grossProfit - expenseTotal,
+    });
+  }
+  res.json(rows);
 }));
 
 export default r;
