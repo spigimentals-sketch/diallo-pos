@@ -281,11 +281,11 @@ const ShiftProvider = ({ children }) => {
   // The open shift belonging to whoever is logged in (if any).
   const myShift = user ? shifts.find(s => !s.clockOut && String(s.employeeId) === String(user.id)) : null;
 
-  // Cashier on the clock for the POS: prefer the logged-in user if clocked in,
-  // otherwise any clocked-in cashier/manager.
-  const activeCashier = myShift
-    ? { id: user.id, name: user.name, role: user.role }
-    : (activeShifts.find(s => ['cashier', 'manager'].includes((s.role || '').toLowerCase())) || null);
+  // Cashier on the clock for the POS: must be the LOGGED-IN user's own open
+  // shift — never anyone else's. Checkout used to fall back to "any other
+  // clocked-in cashier" so it could proceed under someone else's name; a
+  // sale must always be attributed to whoever is actually checking out.
+  const activeCashier = myShift ? { id: user.id, name: user.name, role: user.role } : null;
 
   // Clock the LOGGED-IN user in/out — never anyone else. Always attempts the
   // real request first (don't trust a possibly-stale online flag); only
