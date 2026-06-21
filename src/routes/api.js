@@ -328,6 +328,18 @@ r.post('/orders', h((req, res) => {
   const createdAt = new Date().toISOString();
 
   const tx = db.transaction(() => {
+    // Re-check stock against the live database, not whatever the cart held
+    // when the cashier started — another terminal may have sold the last
+    // units in the meantime. Reject the whole sale rather than silently
+    // selling stock that no longer exists.
+    const stockOf = db.prepare('SELECT name, stock FROM products WHERE id=?');
+    for (const it of items) {
+      if (!it.id) continue;
+      const p = stockOf.get(it.id);
+      if (!p) throw new Error(`Product no longer exists: ${it.name}`);
+      if (p.stock < it.qty) throw new Error(`Insufficient stock for ${p.name}: only ${p.stock} left`);
+    }
+
     const orderInfo = db.prepare(
       'INSERT INTO orders (invoiceNo,customerId,subtotal,discount,tva,total,method,cashier,createdAt,clientOrderId) VALUES (?,?,?,?,?,?,?,?,?,?)'
     ).run(invoiceNo, customerId, subtotal, Math.round(discount), Math.round(tva), total, method, cashier, createdAt, clientOrderId);
@@ -349,9 +361,8 @@ r.post('/orders', h((req, res) => {
     }
 
     if (customerId) {
-      const earned = Math.floor(total / 1000);
-      db.prepare('UPDATE customers SET spent = spent + ?, points = points + ?, visits = visits + 1 WHERE id=?')
-        .run(total, earned, customerId);
+      db.prepare('UPDATE customers SET spent = spent + ?, visits = visits + 1 WHERE id=?')
+        .run(total, customerId);
     }
     return orderId;
   });
@@ -487,10 +498,16 @@ r.get('/reports/inventory', h((req, res) => {
 
 // ---- Accounting: a date-range report powering exports, TVA and margin ----
 // Query params: from=YYYY-MM-DD & to=YYYY-MM-DD (inclusive). Defaults to today.
+// orders.createdAt is stored as a full ISO timestamp (e.g.
+// "2026-06-21T02:55:30.244Z"). The bounds must use the same 'T'/'Z' shape —
+// comparing against "YYYY-MM-DD HH:MM:SS" (space-separated) is a string
+// comparison where 'T' (0x54) sorts after ' ' (0x20), which makes
+// `createdAt <= t` false for every order on the end date and silently drops
+// that whole day from every report.
 const dayBounds = (from, to) => {
   const today = new Date().toISOString().slice(0, 10);
-  const f = (from || today) + ' 00:00:00';
-  const t = (to || from || today) + ' 23:59:59';
+  const f = (from || today) + 'T00:00:00.000Z';
+  const t = (to || from || today) + 'T23:59:59.999Z';
   return { f, t };
 };
 
@@ -545,7 +562,7 @@ r.get('/reports/range', h((req, res) => {
 // Daily Z-report: one day's close-out summary + expected cash drawer.
 r.get('/reports/z', h((req, res) => {
   const date = req.query.date || new Date().toISOString().slice(0, 10);
-  const f = date + ' 00:00:00', t = date + ' 23:59:59';
+  const f = date + 'T00:00:00.000Z', t = date + 'T23:59:59.999Z';
   const where = 'WHERE createdAt >= ? AND createdAt <= ?';
   const totals = db.prepare(
     `SELECT COUNT(*) AS orders, COALESCE(SUM(subtotal),0) AS subtotal,
@@ -611,8 +628,8 @@ r.get('/reports/pnl-trend', h((req, res) => {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-    const f = `${monthStr}-01 00:00:00`;
-    const t = `${monthStr}-${String(lastDay).padStart(2, '0')} 23:59:59`;
+    const f = `${monthStr}-01T00:00:00.000Z`;
+    const t = `${monthStr}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
 
     const margin = db.prepare(
       `SELECT COALESCE(SUM(oi.price*oi.qty),0) AS revenue, COALESCE(SUM(oi.cost*oi.qty),0) AS cogs
