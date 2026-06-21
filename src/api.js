@@ -74,16 +74,12 @@ export const api = {
   // employees & shifts
   getEmployees: () => req('GET', '/employees'),
   getShifts: () => req('GET', '/shifts'),
+  // photoPath is the /uploads/... path from a prior uploadImage() call — a
+  // clock-in photo, taken right at the moment of clocking in (see the
+  // camera modal in the Shifts view), standing in for "this is really
+  // that person" now that fingerprint verification proved impractical.
+  clockIn: (photoPath) => req('POST', '/shifts/clock-in', { photo: photoPath }),
   clockOut: (countedCash) => req('POST', '/shifts/clock-out', { countedCash }),
-  // fingerprint/biometric clock-in (WebAuthn) — clock-in itself only happens
-  // as the last step of webauthnClockInVerify, once the device's sensor has
-  // actually confirmed the person; there's no plain "just clock me in" call.
-  webauthnCredentials: () => req('GET', '/webauthn/credentials'),
-  webauthnDeleteCredential: (id) => req('DELETE', `/webauthn/credentials/${id}`),
-  webauthnRegisterOptions: () => req('GET', '/webauthn/register-options'),
-  webauthnRegisterVerify: (body) => req('POST', '/webauthn/register-verify', body),
-  webauthnClockInOptions: () => req('GET', '/webauthn/clockin-options'),
-  webauthnClockInVerify: (body) => req('POST', '/webauthn/clockin-verify', body),
   // orders / checkout
   createOrder: (o) => req('POST', '/orders', o),
   getOrders: () => req('GET', '/orders'),
@@ -110,15 +106,13 @@ export default api;
 
 // --- Offline mutation queue ---
 // Floor-critical actions that can't be allowed to silently vanish when the
-// backend is unreachable: checkout, clocking out, recording an expense. Each
-// gets queued here instead of being lost, and retried automatically once the
-// connection is back. Every handler is safe to retry — either via a
-// clientId/clientOrderId the server dedupes on (order, expense), or because
-// the resulting state is naturally idempotent (clock out: a "not clocked in"
-// error on retry means it already worked, not that it failed). Clocking IN
-// is deliberately not here — it's a live fingerprint challenge/response with
-// the server, which can't be queued and silently replayed later without
-// defeating the point of requiring it. Everything else in the app (products,
+// backend is unreachable: checkout, clocking in/out, recording an expense.
+// Each gets queued here instead of being lost, and retried automatically
+// once the connection is back. Every handler is safe to retry — either via
+// a clientId/clientOrderId the server dedupes on (order, expense), or
+// because the resulting state is naturally idempotent (clock in/out: an
+// "already clocked in"/"not clocked in" error on retry means it already
+// worked, not that it failed). Everything else in the app (products,
 // suppliers, settings, user management, edits/deletes) intentionally just
 // fails honestly offline instead — queueing an edit risks overwriting newer
 // server-side data with stale local data once it replays, which is a worse
@@ -127,6 +121,13 @@ const PENDING_KEY = 'diallo_pending_mutations';
 
 const MUTATION_HANDLERS = {
   order: { run: (p) => api.createOrder(p) },
+  // The clock-in photo is queued as a raw data URL (the upload itself also
+  // needs connectivity), so retrying means uploading it now and only then
+  // clocking in with the resulting path.
+  clockIn: {
+    run: async (p) => { const { path } = await api.uploadImage('clockin.jpg', p?.photo); return api.clockIn(path); },
+    alreadyDone: (e) => /already clocked in/i.test(e.message || ''),
+  },
   clockOut: { run: (p) => api.clockOut(p?.countedCash), alreadyDone: (e) => /not clocked in/i.test(e.message || '') },
   expense: { run: (p) => api.createExpense(p) },
 };

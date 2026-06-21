@@ -1,7 +1,6 @@
 // @ts-nocheck
 import React, { useState, useMemo, useContext, createContext, useEffect, useRef } from 'react';
 import api, { imageUrl } from './api.js';
-import { startRegistration, startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import {
   ToastProvider, useToast, DataProvider, useData, Modal, Field, Input,
   ProductForm, SupplierForm, UserForm, POForm,
@@ -19,7 +18,7 @@ import {
   Clock, UserCircle2, Printer, Wallet, Truck, ClipboardList,
   ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
   Globe, Building, Hash, Percent, ShieldCheck, BellRing,
-  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu, Fingerprint
+  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu, Camera
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
@@ -274,10 +273,9 @@ const AccessDenied = ({ feature }) => (
   </div>
 );
 
-// Shifts (clock-in, fingerprint registration, the Shifts nav item itself)
-// belong to the fixed POS terminal at the counter, not a handheld device —
-// buddy-punching from a personal phone or tablet is much easier than from
-// the till. Tablets used to get an exception; they no longer do.
+// Shifts (clock-in, the Shifts nav item itself) belong to the fixed POS
+// terminal at the counter, not a handheld device — buddy-punching from a
+// personal phone or tablet is much easier than from the till.
 const isHandheldUA = (ua = '') => {
   if (/iPad/i.test(ua)) return true;
   if (/iPhone|iPod/i.test(ua)) return true;
@@ -291,7 +289,6 @@ const ShiftProvider = ({ children }) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const shifts = liveShifts || [];
-  const [credentials, setCredentials] = useState([]);
 
   const activeShifts = shifts.filter(s => !s.clockOut);
   // The open shift belonging to whoever is logged in (if any).
@@ -309,68 +306,33 @@ const ShiftProvider = ({ children }) => {
   // real session exists so that role-aware filtering actually applies.
   useEffect(() => { if (user) refresh(); }, [user?.id]); // eslint-disable-line
 
-  const refreshCredentials = async () => {
-    if (!user) { setCredentials([]); return; }
-    try { setCredentials(await api.webauthnCredentials()); } catch { /* offline — leave last-known list as-is */ }
-  };
-  useEffect(() => { refreshCredentials(); }, [user?.id]); // eslint-disable-line
-
-  // Registers this device's fingerprint/biometric sensor against the
-  // logged-in user's account. Phones and tablets are refused here too —
-  // registering one would just let someone clock in from it later, the
-  // exact thing this restriction is meant to prevent.
-  const registerFingerprint = async () => {
-    if (!user) return;
-    if (isHandheldUA(navigator.userAgent)) { toast('Use the POS terminal for this — not a phone or tablet', 'error'); return; }
-    if (!browserSupportsWebAuthn()) { toast('This browser does not support fingerprint/biometric sign-in', 'error'); return; }
-    // Deliberately not gated on platformAuthenticatorIsAvailable() — that
-    // check only recognizes built-in sensors (Windows Hello, Touch ID). An
-    // external/keyboard fingerprint reader can register as a "cross-platform"
-    // authenticator instead, which would be wrongly refused here. Let the
-    // actual ceremony decide; userVerification:'required' (server-side)
-    // still guarantees a real biometric/PIN check either way.
-    try {
-      const options = await api.webauthnRegisterOptions();
-      const attestation = await startRegistration({ optionsJSON: options });
-      await api.webauthnRegisterVerify(attestation);
-      await refreshCredentials();
-      toast('Fingerprint registered for clock-in', 'success');
-    } catch (e) {
-      if (e.name === 'NotAllowedError') { toast('Fingerprint setup cancelled', 'error'); return; }
-      if (e.name === 'InvalidStateError') { toast('This finger/device is already registered', 'error'); return; }
-      toast(!e.status && !e.name ? "Can't register while offline" : (e.message || 'Could not register fingerprint'), 'error');
-    }
-  };
-
-  const removeFingerprint = async (credentialRowId) => {
-    try { await api.webauthnDeleteCredential(credentialRowId); await refreshCredentials(); toast('Fingerprint removed'); }
-    catch (e) { toast(e.message, 'error'); }
-  };
-
-  // Clock the LOGGED-IN user in — never anyone else, and only once their
-  // own device's fingerprint sensor has verified them via WebAuthn. This is
-  // a live challenge/response with the server, so unlike clock-out it can't
-  // be queued for later — there's no "offline fingerprint check" to replay.
-  const clockIn = async () => {
+  // Clock the LOGGED-IN user in — never anyone else. photoDataUrl is a
+  // snapshot taken right at this moment (see the camera modal in
+  // ShiftsView) — it's uploaded the same way a product photo is, then the
+  // resulting path is what actually gets attached to the new shift, so a
+  // manager can later check that the person on camera matches the name on
+  // the shift. Queued for offline retry like clock-out, since uploading a
+  // photo (unlike the old fingerprint challenge) doesn't need a live
+  // server round-trip to even start.
+  const clockIn = async (photoDataUrl) => {
     if (!user) return;
     if (isHandheldUA(navigator.userAgent)) {
       toast('Clock in from the POS terminal — not a phone or tablet', 'error');
       return;
     }
-    if (!browserSupportsWebAuthn()) {
-      toast('This browser does not support fingerprint/biometric sign-in', 'error');
-      return;
-    }
     try {
-      const options = await api.webauthnClockInOptions();
-      const assertion = await startAuthentication({ optionsJSON: options });
-      const sh = await api.webauthnClockInVerify(assertion);
+      const { path: photoPath } = await api.uploadImage('clockin.jpg', photoDataUrl);
+      const sh = await api.clockIn(photoPath);
       patch('shifts', list => [sh, ...list]);
       toast('Clocked in', 'success');
     } catch (e) {
-      if (e.name === 'NotAllowedError') { toast('Fingerprint check cancelled or did not match', 'error'); return; }
-      if (!e.status && !e.name) { toast("Can't clock in while offline — fingerprint check needs a connection", 'error'); return; }
-      toast(e.message || 'Clock-in failed', 'error');
+      if (!e.status) {
+        queueMutation('clockIn', { photo: photoDataUrl });
+        patch('shifts', list => [{ id: Date.now(), employeeId: user.id, name: user.name, role: user.role, clockIn: new Date().toISOString(), clockOut: null }, ...list]);
+        toast('Offline — clock-in saved on this device, will sync automatically once back online', 'info');
+      } else {
+        toast(e.message, 'error');
+      }
     }
   };
   // countedCash is the cash drawer amount counted at clock-out, for the
@@ -392,7 +354,7 @@ const ShiftProvider = ({ children }) => {
   };
 
   return (
-    <ShiftContext.Provider value={{ shifts, activeShifts, myShift, activeCashier, clockIn, clockOut, credentials, registerFingerprint, removeFingerprint }}>
+    <ShiftContext.Provider value={{ shifts, activeShifts, myShift, activeCashier, clockIn, clockOut }}>
       {children}
     </ShiftContext.Provider>
   );
@@ -2959,19 +2921,102 @@ const SettingsView = () => {
   );
 };
 
+// Live camera preview + capture, used right before a clock-in completes.
+// The snapshot is the thing standing in for "this is really that person" —
+// it gets uploaded and attached to the new shift so a manager can check it
+// later, the way fingerprint verification was meant to but couldn't
+// reliably do across domains.
+const ClockInCameraModal = ({ open, onClose, onCapture }) => {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [error, setError] = useState('');
+  const [capturing, setCapturing] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setError('');
+    setCapturing(false);
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+      .then((stream) => {
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      })
+      .catch(() => setError('Camera access is required to clock in — allow camera permission and try again.'));
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+  }, [open]);
+
+  const handleClose = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    onClose();
+  };
+
+  const capture = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    setCapturing(true);
+    const width = 480;
+    const height = Math.round((480 * video.videoHeight) / video.videoWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    canvas.getContext('2d').drawImage(video, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    onCapture(dataUrl);
+  };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-stone-900 flex items-center gap-2"><Camera size={16} /> Clock-in photo</h3>
+          <button onClick={handleClose} className="p-1.5 rounded-md hover:bg-stone-100"><X size={15} className="text-stone-500" /></button>
+        </div>
+        {error ? (
+          <div className="text-sm text-rose-600 py-8 text-center">{error}</div>
+        ) : (
+          <div className="rounded-xl overflow-hidden bg-stone-900 aspect-square mb-4">
+            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button onClick={handleClose} className="flex-1 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-100 rounded-lg">Cancel</button>
+          <button onClick={capture} disabled={!!error || capturing}
+            className="flex-1 py-2.5 bg-emerald-900 text-white rounded-lg text-sm font-medium hover:bg-emerald-800 disabled:opacity-50 flex items-center justify-center gap-2">
+            <Camera size={15} /> Capture & clock in
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============ MAIN APP ============
 // ============ SHIFTS VIEW ============
 const ShiftsView = () => {
   const { t } = useT();
   const { user } = useAuth();
   const { toast } = useToast();
-  const { shifts, activeShifts, myShift, clockIn, clockOut, credentials, registerFingerprint, removeFingerprint } = useShifts();
+  const { shifts, activeShifts, myShift, clockIn, clockOut } = useShifts();
   const [clockOutModal, setClockOutModal] = useState(false);
   const [countedCash, setCountedCash] = useState('');
+  const [showCamera, setShowCamera] = useState(false);
   const onHandheld = isHandheldUA(navigator.userAgent);
-  const hasFingerprint = credentials.length > 0;
 
   const isManager = user?.role === 'manager' || user?.role === 'admin';
+
+  const handleCapture = async (photoDataUrl) => {
+    setShowCamera(false);
+    await clockIn(photoDataUrl);
+  };
 
   const submitClockOut = async () => {
     await clockOut(countedCash === '' ? undefined : Number(countedCash));
@@ -3053,8 +3098,6 @@ const ShiftsView = () => {
               </div>
             ) : onHandheld ? (
               <div className="text-sm text-amber-600 mt-0.5">Clock in from the POS terminal — not a phone or tablet</div>
-            ) : !hasFingerprint ? (
-              <div className="text-sm text-amber-600 mt-0.5">Set up your fingerprint below before you can clock in</div>
             ) : (
               <div className="text-sm text-stone-400 mt-0.5">You are off the clock</div>
             )}
@@ -3064,53 +3107,13 @@ const ShiftsView = () => {
               <ArrowUpLeft size={16} /> Clock out
             </button>
           ) : (
-            <button onClick={clockIn} disabled={onHandheld || !hasFingerprint}
-              title={onHandheld ? 'Clock in from the POS terminal — not a phone or tablet' : !hasFingerprint ? 'Set up your fingerprint first' : undefined}
+            <button onClick={() => setShowCamera(true)} disabled={onHandheld}
+              title={onHandheld ? 'Clock in from the POS terminal — not a phone or tablet' : undefined}
               className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white text-sm font-medium hover:bg-emerald-800 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-900">
-              <Fingerprint size={16} /> Clock in
+              <Camera size={16} /> Clock in
             </button>
           )}
         </div>
-
-        {/* Fingerprint management — clock-in is verified against whatever's registered here.
-            Up to 3 fingers, each its own scan (built-in or external/keyboard sensor — both work,
-            as long as the device actually performs a biometric/PIN check). */}
-        {!onHandheld && (
-          <div className="mt-5 pt-5 border-t border-stone-100">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-[11px] uppercase tracking-widest text-stone-400 font-medium">Fingerprint sign-in</div>
-              <div className="text-[11px] text-stone-400">{credentials.length} of 3 registered</div>
-            </div>
-            {credentials.length === 0 ? (
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-stone-500 max-w-sm">No fingerprint registered yet. Set one up once, then clocking in will ask for it every time. You can register up to 3 — scan a different finger each time as a backup.</p>
-                <button onClick={registerFingerprint} className="flex-shrink-0 px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-medium hover:bg-stone-800 flex items-center gap-1.5">
-                  <Fingerprint size={14} /> Set up fingerprint
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {credentials.map(c => (
-                  <div key={c.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-stone-50 border border-stone-100">
-                    <div className="flex items-center gap-2 text-xs text-stone-700">
-                      <Fingerprint size={14} className="text-emerald-700" />
-                      <span className="font-medium">{c.deviceLabel || 'Registered fingerprint'}</span>
-                      <span className="text-stone-400">· added {fmtDate(c.createdAt)}</span>
-                    </div>
-                    <button onClick={() => removeFingerprint(c.id)} className="text-xs text-stone-400 hover:text-rose-600">Remove</button>
-                  </div>
-                ))}
-                {credentials.length < 3 ? (
-                  <button onClick={registerFingerprint} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium flex items-center gap-1.5 pt-1">
-                    <Fingerprint size={13} /> Register another finger ({credentials.length}/3)
-                  </button>
-                ) : (
-                  <p className="text-xs text-stone-400 pt-1">All 3 fingerprint slots are used. Remove one to register a different finger.</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Managers & admins can VIEW who is on duty (read-only — no clocking others) */}
@@ -3158,6 +3161,7 @@ const ShiftsView = () => {
           <thead className="text-xs text-stone-500 bg-stone-50/60">
             <tr>
               {isManager && <th className="text-left font-medium px-5 py-3">Employee</th>}
+              {isManager && <th className="text-left font-medium px-5 py-3">Clock-in photo</th>}
               <th className="text-left font-medium px-5 py-3">Date</th>
               <th className="text-left font-medium px-5 py-3">Clock in</th>
               <th className="text-left font-medium px-5 py-3">Clock out</th>
@@ -3168,7 +3172,7 @@ const ShiftsView = () => {
           </thead>
           <tbody className="divide-y divide-stone-100">
             {visibleShifts.length === 0 ? (
-              <tr><td colSpan={isManager ? 7 : 5} className="px-5 py-8 text-center text-stone-400">No shifts recorded yet.</td></tr>
+              <tr><td colSpan={isManager ? 8 : 5} className="px-5 py-8 text-center text-stone-400">No shifts recorded yet.</td></tr>
             ) : visibleShifts.map(s => (
               <tr key={s.id}>
                 {isManager && (
@@ -3176,6 +3180,17 @@ const ShiftsView = () => {
                     <div className="font-medium text-stone-900">{s.name}</div>
                     <div className="text-xs text-stone-500 capitalize">{s.role}</div>
                     <div className="text-xs text-stone-400 mt-0.5">Total: {formatHours(totalHoursByEmployee[s.employeeId] || 0)}</div>
+                  </td>
+                )}
+                {isManager && (
+                  <td className="px-5 py-3">
+                    {s.clockInPhoto ? (
+                      <button onClick={() => window.open(imageUrl(s.clockInPhoto), '_blank')} title="View full size">
+                        <img src={imageUrl(s.clockInPhoto)} alt="Clock-in" className="w-10 h-10 rounded-lg object-cover border border-stone-200 hover:opacity-80" />
+                      </button>
+                    ) : (
+                      <span className="text-xs text-stone-400">—</span>
+                    )}
                   </td>
                 )}
                 <td className="px-5 py-3 text-stone-600">{fmtDate(s.clockIn)}</td>
@@ -3225,6 +3240,8 @@ const ShiftsView = () => {
           <Input type="number" value={countedCash} onChange={(e) => setCountedCash(e.target.value)} placeholder="0" />
         </Field>
       </Modal>
+
+      <ClockInCameraModal open={showCamera} onClose={() => setShowCamera(false)} onCapture={handleCapture} />
     </div>
   );
 };
