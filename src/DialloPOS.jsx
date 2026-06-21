@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useMemo, useContext, createContext, useEffect, useRef } from 'react';
 import api, { imageUrl } from './api.js';
+import { startRegistration, startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import {
   ToastProvider, useToast, DataProvider, useData, Modal, Field, Input,
   ProductForm, SupplierForm, UserForm, POForm,
@@ -18,7 +19,7 @@ import {
   Clock, UserCircle2, Printer, Wallet, Truck, ClipboardList,
   ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
   Globe, Building, Hash, Percent, ShieldCheck, BellRing,
-  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu
+  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu, Fingerprint
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
@@ -124,7 +125,7 @@ const TRANSLATIONS = {
     paid: 'Paid', change: 'Change',
     thank_you: 'Thank you for shopping with us',
     visit_again: 'See you soon!',
-    close: 'Close', email_receipt: 'Email receipt',
+    close: 'Close',
   },
   fr: {
     checkout: 'Caisse', dashboard: 'Tableau de bord', inventory: 'Inventaire',
@@ -213,7 +214,7 @@ const TRANSLATIONS = {
     paid: 'Payé', change: 'Monnaie',
     thank_you: 'Merci de votre visite',
     visit_again: 'À bientôt !',
-    close: 'Fermer', email_receipt: 'Envoyer par e-mail',
+    close: 'Fermer',
   }
 };
 
@@ -273,11 +274,23 @@ const AccessDenied = ({ feature }) => (
   </div>
 );
 
+// Clock-in belongs to the POS terminal/tablet at the counter, not a cashier's
+// own phone — buddy-punching from home is much easier on a personal device.
+// Tablets (iPad, Android tablets — they omit the "Mobile" UA token) are fine.
+const isPhoneUA = (ua = '') => {
+  if (/iPad/i.test(ua)) return false;
+  if (/iPhone|iPod/i.test(ua)) return true;
+  if (/Android/i.test(ua)) return /Mobile/i.test(ua);
+  if (/Windows Phone/i.test(ua)) return true;
+  return false;
+};
+
 const ShiftProvider = ({ children }) => {
   const { shifts: liveShifts, patch, refresh, queueMutation } = useData();
   const { user } = useAuth();
   const { toast } = useToast();
   const shifts = liveShifts || [];
+  const [credentials, setCredentials] = useState([]);
 
   const activeShifts = shifts.filter(s => !s.clockOut);
   // The open shift belonging to whoever is logged in (if any).
@@ -289,22 +302,74 @@ const ShiftProvider = ({ children }) => {
   // sale must always be attributed to whoever is actually checking out.
   const activeCashier = myShift ? { id: user.id, name: user.name, role: user.role } : null;
 
-  // Clock the LOGGED-IN user in/out — never anyone else. Always attempts the
-  // real request first (don't trust a possibly-stale online flag); only
-  // queue it for later sync if the backend genuinely can't be reached.
+  // The very first load of shifts (and everything else) happens before
+  // anyone's logged in, with no auth token yet — that's when /shifts can't
+  // know to strip cash-reconciliation fields for a cashier. Re-pull once a
+  // real session exists so that role-aware filtering actually applies.
+  useEffect(() => { if (user) refresh(); }, [user?.id]); // eslint-disable-line
+
+  const refreshCredentials = async () => {
+    if (!user) { setCredentials([]); return; }
+    try { setCredentials(await api.webauthnCredentials()); } catch { /* offline — leave last-known list as-is */ }
+  };
+  useEffect(() => { refreshCredentials(); }, [user?.id]); // eslint-disable-line
+
+  // Registers this device's fingerprint/biometric sensor against the
+  // logged-in user's account. Phones are refused here too — registering a
+  // phone would just let someone clock in from it later, the exact thing
+  // the phone ban is meant to prevent.
+  const registerFingerprint = async () => {
+    if (!user) return;
+    if (isPhoneUA(navigator.userAgent)) { toast('Use the POS terminal or a tablet, not a phone', 'error'); return; }
+    if (!browserSupportsWebAuthn()) { toast('This browser does not support fingerprint/biometric sign-in', 'error'); return; }
+    // Deliberately not gated on platformAuthenticatorIsAvailable() — that
+    // check only recognizes built-in sensors (Windows Hello, Touch ID). An
+    // external/keyboard fingerprint reader can register as a "cross-platform"
+    // authenticator instead, which would be wrongly refused here. Let the
+    // actual ceremony decide; userVerification:'required' (server-side)
+    // still guarantees a real biometric/PIN check either way.
+    try {
+      const options = await api.webauthnRegisterOptions();
+      const attestation = await startRegistration({ optionsJSON: options });
+      await api.webauthnRegisterVerify(attestation);
+      await refreshCredentials();
+      toast('Fingerprint registered for clock-in', 'success');
+    } catch (e) {
+      if (e.name === 'NotAllowedError') { toast('Fingerprint setup cancelled', 'error'); return; }
+      if (e.name === 'InvalidStateError') { toast('This finger/device is already registered', 'error'); return; }
+      toast(!e.status && !e.name ? "Can't register while offline" : (e.message || 'Could not register fingerprint'), 'error');
+    }
+  };
+
+  const removeFingerprint = async (credentialRowId) => {
+    try { await api.webauthnDeleteCredential(credentialRowId); await refreshCredentials(); toast('Fingerprint removed'); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+
+  // Clock the LOGGED-IN user in — never anyone else, and only once their
+  // own device's fingerprint sensor has verified them via WebAuthn. This is
+  // a live challenge/response with the server, so unlike clock-out it can't
+  // be queued for later — there's no "offline fingerprint check" to replay.
   const clockIn = async () => {
     if (!user) return;
+    if (isPhoneUA(navigator.userAgent)) {
+      toast('Clock in from the POS terminal or a tablet, not a phone', 'error');
+      return;
+    }
+    if (!browserSupportsWebAuthn()) {
+      toast('This browser does not support fingerprint/biometric sign-in', 'error');
+      return;
+    }
     try {
-      const sh = await api.clockIn();
+      const options = await api.webauthnClockInOptions();
+      const assertion = await startAuthentication({ optionsJSON: options });
+      const sh = await api.webauthnClockInVerify(assertion);
       patch('shifts', list => [sh, ...list]);
+      toast('Clocked in', 'success');
     } catch (e) {
-      if (!e.status) {
-        queueMutation('clockIn', {});
-        patch('shifts', list => [{ id: Date.now(), employeeId: user.id, name: user.name, role: user.role, clockIn: new Date().toISOString(), clockOut: null }, ...list]);
-        toast('Offline — clock-in saved on this device, will sync automatically once back online', 'info');
-      } else {
-        toast(e.message, 'error');
-      }
+      if (e.name === 'NotAllowedError') { toast('Fingerprint check cancelled or did not match', 'error'); return; }
+      if (!e.status && !e.name) { toast("Can't clock in while offline — fingerprint check needs a connection", 'error'); return; }
+      toast(e.message || 'Clock-in failed', 'error');
     }
   };
   // countedCash is the cash drawer amount counted at clock-out, for the
@@ -326,7 +391,7 @@ const ShiftProvider = ({ children }) => {
   };
 
   return (
-    <ShiftContext.Provider value={{ shifts, activeShifts, myShift, activeCashier, clockIn, clockOut }}>
+    <ShiftContext.Provider value={{ shifts, activeShifts, myShift, activeCashier, clockIn, clockOut, credentials, registerFingerprint, removeFingerprint }}>
       {children}
     </ShiftContext.Provider>
   );
@@ -513,9 +578,10 @@ const LangToggle = () => {
 
 const TopBar = ({ title, subtitle, children, onMenu }) => {
   const { lang } = useT();
-  const { products, online, pendingSyncCount } = useData();
+  const { products, online, pendingSyncCount, settings } = useData();
   const [open, setOpen] = useState(false);
-  const lowStock = (products || []).filter(p => p.stock < 10);
+  const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
+  const lowStock = (products || []).filter(p => p.stock < lowStockThreshold);
   return (
     <div className="flex items-center justify-between px-4 sm:px-5 lg:px-7 py-4 bg-white/70 backdrop-blur border-b border-stone-200/80 flex-shrink-0">
       <div className="flex items-center gap-3 min-w-0">
@@ -621,7 +687,14 @@ const QRPattern = () => {
 const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   const { t, lang } = useT();
   const { activeCashier } = useShifts();
-  const { toast } = useToast();
+  // Fires once per completed sale, right as the receipt appears — printing
+  // shouldn't depend on someone remembering to click Print every time.
+  // The brief delay lets the modal actually paint first.
+  useEffect(() => {
+    if (!open) return;
+    const id = setTimeout(() => window.print(), 250);
+    return () => clearTimeout(id);
+  }, [open]);
   if (!open) return null;
   const { items = [], subtotal = 0, tva = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
   const paid = total;
@@ -644,7 +717,7 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
 
         {/* Receipt paper */}
         <div className="overflow-y-auto p-5 flex-1">
-          <div className="bg-white shadow-md mx-auto" style={{ width: '300px', fontFamily: "'JetBrains Mono', 'Courier New', monospace", fontSize: '11px', color: '#0c0a09' }}>
+          <div className="print-receipt bg-white shadow-md mx-auto" style={{ width: '300px', fontFamily: "'JetBrains Mono', 'Courier New', monospace", fontSize: '11px', color: '#0c0a09' }}>
             {/* Top tear edge */}
             <div className="h-2 bg-white" style={{ background: 'linear-gradient(135deg, white 25%, transparent 25%) -5px 0, linear-gradient(225deg, white 25%, transparent 25%) -5px 0, white', backgroundSize: '10px 10px', backgroundRepeat: 'repeat-x' }} />
 
@@ -752,18 +825,9 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
         </div>
 
         {/* Actions */}
-        <div className="border-t border-stone-200 p-4 grid grid-cols-3 gap-2 flex-shrink-0">
+        <div className="border-t border-stone-200 p-4 grid grid-cols-2 gap-2 flex-shrink-0">
           <button onClick={() => window.print()} className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50">
             <Printer size={14} /> {t('print')}
-          </button>
-          <button onClick={() => {
-              const to = data?.customer?.email || '';
-              const subject = encodeURIComponent(`Receipt ${data?.invoiceNo || ''} — Diallo`);
-              const body = encodeURIComponent(`Thank you for your purchase. Total: ${fmt(data?.total || 0)}`);
-              window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
-              toast('Opening email…', 'info');
-            }} className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50">
-            <Mail size={14} /> {t('email_receipt')}
           </button>
           <button onClick={() => { onNewOrder ? onNewOrder() : onClose(); }} className="py-2 bg-emerald-900 text-white rounded-lg text-xs font-medium hover:bg-emerald-800">
             {onNewOrder ? t('new_order') : t('close')}
@@ -811,6 +875,7 @@ const POSView = () => {
   const { activeCashier } = useShifts();
   const { products: liveProducts, customers: liveCustomers, online, refresh, settings, queueMutation } = useData();
   const tvaRate = Number(settings?.tvaRate ?? 19.25) / 100;
+  const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
   const { toast } = useToast();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customerList = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
@@ -822,7 +887,6 @@ const POSView = () => {
   const [paymentMethod, setPaymentMethod] = useState('mobile');
   const [showReceipt, setShowReceipt] = useState(false);
   const [showScan, setShowScan] = useState(false);
-  const [lastInvoice, setLastInvoice] = useState('');
 
   // No customer is selected by default — this is a supermarket counter, not
   // a loyalty-program checkout, and there's no time to register someone for
@@ -886,6 +950,11 @@ const POSView = () => {
   const tva = subtotal * tvaRate;
   const total = subtotal + tva;
 
+  // A frozen copy of what was just bought, separate from the live cart —
+  // the cart empties itself the instant payment completes, but the receipt
+  // (on screen and on the printout) still needs to show what was in it.
+  const [completedOrder, setCompletedOrder] = useState(null);
+
   const completePayment = async () => {
     if (cart.length === 0 || !activeCashier) return;
     // Re-check against the latest known stock right before sending — the
@@ -908,9 +977,13 @@ const POSView = () => {
       customerId: customer?.id || null,
       method: paymentMethod, cashier: activeCashier.name, tva, clientOrderId,
     };
+    // Captured now, not read live off the cart later — the cart stays as-is
+    // until the cashier clicks "New order", but this snapshot keeps the
+    // receipt's contents stable even once they do.
+    const snapshot = { items: cart, subtotal, tva, total, customer, method: paymentMethod };
     try {
       const order = await api.createOrder(payload);
-      setLastInvoice(order.invoiceNo);
+      setCompletedOrder({ ...snapshot, invoiceNo: order.invoiceNo });
       refresh(); // pull fresh stock levels + customer spend/visits
       setShowReceipt(true);
     } catch (e) {
@@ -918,7 +991,8 @@ const POSView = () => {
         // Couldn't reach the backend at all — don't lose the sale. Queue it
         // here; it syncs automatically (and safely) once the connection is back.
         queueMutation('order', payload);
-        setLastInvoice('INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000));
+        const invoiceNo = 'INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000);
+        setCompletedOrder({ ...snapshot, invoiceNo });
         toast('Offline — sale saved on this device, will sync automatically once back online', 'info');
         setShowReceipt(true);
       } else {
@@ -927,9 +1001,7 @@ const POSView = () => {
     }
   };
 
-  const startNewOrder = () => { setCart([]); setShowReceipt(false); };
-
-  const receiptData = { items: cart, subtotal, tva, total, customer, method: paymentMethod, invoiceNo: lastInvoice };
+  const startNewOrder = () => { setCart([]); setShowReceipt(false); setCompletedOrder(null); };
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
@@ -974,7 +1046,7 @@ const POSView = () => {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
             {filtered.map(p => {
               const outOfStock = p.stock <= 0;
-              const lowStock = !outOfStock && p.stock < 10;
+              const lowStock = !outOfStock && p.stock < lowStockThreshold;
               return (
                 <button key={p.id} onClick={() => addToCart(p)} disabled={outOfStock}
                   className={`group relative bg-white rounded-2xl p-3.5 border text-left transition-all ${outOfStock ? 'border-stone-200/80 opacity-50 cursor-not-allowed' : 'border-stone-200/80 hover:border-emerald-600 hover:shadow-lg hover:shadow-emerald-900/5'}`}>
@@ -1119,7 +1191,7 @@ const POSView = () => {
         </div>
       </div>
 
-      <ReceiptModal open={showReceipt} onClose={() => setShowReceipt(false)} data={receiptData} onNewOrder={startNewOrder} />
+      <ReceiptModal open={showReceipt} onClose={() => setShowReceipt(false)} data={completedOrder} onNewOrder={startNewOrder} />
       <ScanModal open={showScan} onClose={() => setShowScan(false)} onScan={onScanCode} />
 
       <Modal open={showCustomerPicker} onClose={() => setShowCustomerPicker(false)} title={t('add_customer')}>
@@ -1143,9 +1215,10 @@ const POSView = () => {
 // ============ DASHBOARD ============
 const DashboardView = () => {
   const { t, lang } = useT();
-  const { online, products: liveProducts, customers: liveCustomers } = useData();
+  const { online, products: liveProducts, customers: liveCustomers, settings } = useData();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customers = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
+  const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
   const [range, setRange] = useState('7D');
   const [report, setReport] = useState(null);
   const [profitability, setProfitability] = useState([]);
@@ -1194,7 +1267,7 @@ const DashboardView = () => {
     });
   }, [report, t]);
 
-  const lowCount = products.filter(p => p.stock < 10).length;
+  const lowCount = products.filter(p => p.stock < lowStockThreshold).length;
   const todaysSales = report?.totals?.revenue != null ? fmt(report.totals.revenue) : '0 FCFA';
   const ordersCount = report?.totals?.orders != null ? String(report.totals.orders) : '0';
 
@@ -1396,14 +1469,15 @@ const InventoryView = () => {
 const ProductsPanel = () => {
   const { t } = useT();
   const { can } = useRole();
-  const { products: liveProducts, online } = useData();
+  const { products: liveProducts, online, settings } = useData();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
+  const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const filtered = products.filter(p => {
-    if (filter === 'low' && p.stock >= 10) return false;
+    if (filter === 'low' && p.stock >= lowStockThreshold) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -1415,7 +1489,7 @@ const ProductsPanel = () => {
   const openAdd = () => { setEditing(null); setModalOpen(true); };
   const openEdit = (p) => { setEditing(p); setModalOpen(true); };
   const stockValue = products.reduce((sum, p) => sum + p.price * p.stock, 0);
-  const lowStockCount = products.filter(p => p.stock > 0 && p.stock < 10).length;
+  const lowStockCount = products.filter(p => p.stock > 0 && p.stock < lowStockThreshold).length;
   const outOfStockCount = products.filter(p => p.stock === 0).length;
 
   return (
@@ -1468,7 +1542,7 @@ const ProductsPanel = () => {
           <tbody>
             {filtered.map(p => {
               const cat = CATEGORIES.find(c => c.id === p.category);
-              const lowStock = p.stock < 10;
+              const lowStock = p.stock < lowStockThreshold;
               return (
                 <tr key={p.id} className="border-b border-stone-100 hover:bg-stone-50/50">
                   <td className="px-5 py-3">
@@ -2565,13 +2639,14 @@ const SettingsView = () => {
     try {
       await api.saveSettings(settings);
       setSavedSnapshot(settings);
+      patch('settings', () => settings); // propagate to every view sharing this data, not just this form
       toast('Settings saved');
     } catch (e) {
       toast(!e.status ? "Can't save while offline — try again once connected" : e.message, 'error');
     }
   };
   const clearAllData = async () => {
-    if (!window.confirm('Clear ALL demo data — inventory, sales, dashboard, customers, suppliers, employees and other login accounts — so the shop starts from scratch?\n\nOnly your own account and settings are kept. It cannot be undone.')) return;
+    if (!window.confirm('Clear ALL demo data — inventory, sales, dashboard, customers, suppliers and employees — so the shop starts from scratch?\n\nLogin accounts and settings are kept. It cannot be undone.')) return;
     if (!window.confirm('Are you absolutely sure? Every product, sale, customer, supplier, employee and other user login will be permanently deleted.')) return;
     try {
       await api.clearData();
@@ -2837,8 +2912,8 @@ const SettingsView = () => {
                 <h4 className="font-medium text-rose-700 flex items-center gap-2 mb-1"><AlertTriangle size={15} /> Clear all data</h4>
                 <p className="text-xs text-stone-600 max-w-lg mb-3">
                   Permanently deletes all products, stock movements, purchase orders, sales history, customers,
-                  suppliers, expenses, shifts and employees — and every other login account — so the inventory,
-                  dashboard and customer records all start from zero. Only your own account and settings are kept.
+                  suppliers, expenses, shifts and employees so the inventory, dashboard and customer records all
+                  start from zero. Login accounts and settings are kept — staff don't need to be recreated.
                   This cannot be undone.
                 </p>
                 <button onClick={clearAllData} className="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700">Clear all data</button>
@@ -2882,9 +2957,11 @@ const ShiftsView = () => {
   const { t } = useT();
   const { user } = useAuth();
   const { toast } = useToast();
-  const { shifts, activeShifts, myShift, clockIn, clockOut } = useShifts();
+  const { shifts, activeShifts, myShift, clockIn, clockOut, credentials, registerFingerprint, removeFingerprint } = useShifts();
   const [clockOutModal, setClockOutModal] = useState(false);
   const [countedCash, setCountedCash] = useState('');
+  const onPhone = isPhoneUA(navigator.userAgent);
+  const hasFingerprint = credentials.length > 0;
 
   const isManager = user?.role === 'manager' || user?.role === 'admin';
 
@@ -2907,14 +2984,35 @@ const ShiftsView = () => {
     const end = b ? new Date(b).getTime() : Date.now();
     return (end - new Date(a).getTime()) / 3600000;
   };
+  const formatHours = (totalHours) => {
+    const h = Math.floor(totalHours);
+    const m = Math.round((totalHours - h) * 60);
+    return `${h}h ${m}m`;
+  };
   const initials = (name) => (name || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   // History the current person is allowed to see: managers/admins see everyone;
   // a cashier sees only their own shifts.
   const visibleShifts = isManager ? shifts : shifts.filter(s => String(s.employeeId) === String(user?.id));
 
+  // Total hours worked, summed across every recorded shift (including the
+  // one still running, if any) — recomputed on every render straight from
+  // the live shifts list, so it updates the moment a clock-out lands without
+  // any separate tracking of its own.
+  const totalHoursByEmployee = {};
+  visibleShifts.forEach(s => {
+    totalHoursByEmployee[s.employeeId] = (totalHoursByEmployee[s.employeeId] || 0) + hoursFor(s.clockIn, s.clockOut);
+  });
+  const myTotalHours = visibleShifts
+    .filter(s => String(s.employeeId) === String(user?.id))
+    .reduce((sum, s) => sum + hoursFor(s.clockIn, s.clockOut), 0);
+
   const exportTimesheet = () => {
-    const rows = [['Employee', 'Role', 'Date', 'Clock in', 'Clock out', 'Hours', 'Expected cash', 'Counted cash', 'Variance', 'Status']];
+    const rows = [[
+      'Employee', 'Role', 'Date', 'Clock in', 'Clock out', 'Hours',
+      ...(isManager ? ['Expected cash', 'Counted cash', 'Variance'] : []),
+      'Status',
+    ]];
     visibleShifts.forEach(s => {
       rows.push([
         s.name, s.role,
@@ -2922,7 +3020,7 @@ const ShiftsView = () => {
         new Date(s.clockIn).toISOString(),
         s.clockOut ? new Date(s.clockOut).toISOString() : '',
         hoursFor(s.clockIn, s.clockOut).toFixed(2),
-        s.expectedCash ?? '', s.countedCash ?? '', s.cashVariance ?? '',
+        ...(isManager ? [s.expectedCash ?? '', s.countedCash ?? '', s.cashVariance ?? ''] : []),
         s.clockOut ? 'Completed' : 'Active',
       ]);
     });
@@ -2945,6 +3043,10 @@ const ShiftsView = () => {
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 On the clock since {fmtTime(myShift.clockIn)} · {duration(myShift.clockIn)}
               </div>
+            ) : onPhone ? (
+              <div className="text-sm text-amber-600 mt-0.5">Clock in from the POS terminal or a tablet, not a phone</div>
+            ) : !hasFingerprint ? (
+              <div className="text-sm text-amber-600 mt-0.5">Set up your fingerprint below before you can clock in</div>
             ) : (
               <div className="text-sm text-stone-400 mt-0.5">You are off the clock</div>
             )}
@@ -2954,11 +3056,53 @@ const ShiftsView = () => {
               <ArrowUpLeft size={16} /> Clock out
             </button>
           ) : (
-            <button onClick={clockIn} className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white text-sm font-medium hover:bg-emerald-800 flex items-center gap-2">
-              <ArrowDownLeft size={16} /> Clock in
+            <button onClick={clockIn} disabled={onPhone || !hasFingerprint}
+              title={onPhone ? 'Clock in from the POS terminal or a tablet, not a phone' : !hasFingerprint ? 'Set up your fingerprint first' : undefined}
+              className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white text-sm font-medium hover:bg-emerald-800 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-900">
+              <Fingerprint size={16} /> Clock in
             </button>
           )}
         </div>
+
+        {/* Fingerprint management — clock-in is verified against whatever's registered here.
+            Up to 3 fingers, each its own scan (built-in or external/keyboard sensor — both work,
+            as long as the device actually performs a biometric/PIN check). */}
+        {!onPhone && (
+          <div className="mt-5 pt-5 border-t border-stone-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[11px] uppercase tracking-widest text-stone-400 font-medium">Fingerprint sign-in</div>
+              <div className="text-[11px] text-stone-400">{credentials.length} of 3 registered</div>
+            </div>
+            {credentials.length === 0 ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-stone-500 max-w-sm">No fingerprint registered yet. Set one up once, then clocking in will ask for it every time. You can register up to 3 — scan a different finger each time as a backup.</p>
+                <button onClick={registerFingerprint} className="flex-shrink-0 px-4 py-2 rounded-lg bg-stone-900 text-white text-xs font-medium hover:bg-stone-800 flex items-center gap-1.5">
+                  <Fingerprint size={14} /> Set up fingerprint
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {credentials.map(c => (
+                  <div key={c.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-stone-50 border border-stone-100">
+                    <div className="flex items-center gap-2 text-xs text-stone-700">
+                      <Fingerprint size={14} className="text-emerald-700" />
+                      <span className="font-medium">{c.deviceLabel || 'Registered fingerprint'}</span>
+                      <span className="text-stone-400">· added {fmtDate(c.createdAt)}</span>
+                    </div>
+                    <button onClick={() => removeFingerprint(c.id)} className="text-xs text-stone-400 hover:text-rose-600">Remove</button>
+                  </div>
+                ))}
+                {credentials.length < 3 ? (
+                  <button onClick={registerFingerprint} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium flex items-center gap-1.5 pt-1">
+                    <Fingerprint size={13} /> Register another finger ({credentials.length}/3)
+                  </button>
+                ) : (
+                  <p className="text-xs text-stone-400 pt-1">All 3 fingerprint slots are used. Remove one to register a different finger.</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Managers & admins can VIEW who is on duty (read-only — no clocking others) */}
@@ -2993,7 +3137,12 @@ const ShiftsView = () => {
       {/* Shift history — own for cashiers, everyone for managers/admins */}
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
         <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
-          <h3 className="font-semibold text-stone-900">{isManager ? 'Shift history' : 'Your shift history'}</h3>
+          <div>
+            <h3 className="font-semibold text-stone-900">{isManager ? 'Shift history' : 'Your shift history'}</h3>
+            {!isManager && (
+              <p className="text-xs text-stone-500 mt-0.5">Total hours worked: <span className="font-medium text-stone-700">{formatHours(myTotalHours)}</span></p>
+            )}
+          </div>
           <button onClick={exportTimesheet} className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5"><Download size={13} /> Export CSV</button>
         </div>
         <div className="overflow-x-auto">
@@ -3005,41 +3154,44 @@ const ShiftsView = () => {
               <th className="text-left font-medium px-5 py-3">Clock in</th>
               <th className="text-left font-medium px-5 py-3">Clock out</th>
               <th className="text-left font-medium px-5 py-3">Duration</th>
-              <th className="text-left font-medium px-5 py-3">Cash reconciliation</th>
+              {isManager && <th className="text-left font-medium px-5 py-3">Cash reconciliation</th>}
               <th className="text-left font-medium px-5 py-3">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
             {visibleShifts.length === 0 ? (
-              <tr><td colSpan={isManager ? 7 : 6} className="px-5 py-8 text-center text-stone-400">No shifts recorded yet.</td></tr>
+              <tr><td colSpan={isManager ? 7 : 5} className="px-5 py-8 text-center text-stone-400">No shifts recorded yet.</td></tr>
             ) : visibleShifts.map(s => (
               <tr key={s.id}>
                 {isManager && (
                   <td className="px-5 py-3">
                     <div className="font-medium text-stone-900">{s.name}</div>
                     <div className="text-xs text-stone-500 capitalize">{s.role}</div>
+                    <div className="text-xs text-stone-400 mt-0.5">Total: {formatHours(totalHoursByEmployee[s.employeeId] || 0)}</div>
                   </td>
                 )}
                 <td className="px-5 py-3 text-stone-600">{fmtDate(s.clockIn)}</td>
                 <td className="px-5 py-3 text-stone-600">{fmtTime(s.clockIn)}</td>
                 <td className="px-5 py-3 text-stone-600">{fmtTime(s.clockOut)}</td>
                 <td className="px-5 py-3 text-stone-600">{duration(s.clockIn, s.clockOut)}</td>
-                <td className="px-5 py-3">
-                  {!s.clockOut ? (
-                    <span className="text-xs text-stone-400">—</span>
-                  ) : s.countedCash == null ? (
-                    <span className="text-xs text-stone-400">Not counted</span>
-                  ) : (
-                    <div className="text-xs">
-                      <div className="text-stone-500">Exp. {fmt(s.expectedCash || 0)} · Counted {fmt(s.countedCash)}</div>
-                      <div className={`font-medium ${
-                        s.cashVariance === 0 ? 'text-emerald-700' : Math.abs(s.cashVariance) <= 500 ? 'text-amber-700' : 'text-rose-700'
-                      }`}>
-                        {s.cashVariance === 0 ? 'Balanced' : s.cashVariance > 0 ? `Over by ${fmt(s.cashVariance)}` : `Short by ${fmt(Math.abs(s.cashVariance))}`}
+                {isManager && (
+                  <td className="px-5 py-3">
+                    {!s.clockOut ? (
+                      <span className="text-xs text-stone-400">—</span>
+                    ) : s.countedCash == null ? (
+                      <span className="text-xs text-stone-400">Not counted</span>
+                    ) : (
+                      <div className="text-xs">
+                        <div className="text-stone-500">Exp. {fmt(s.expectedCash || 0)} · Counted {fmt(s.countedCash)}</div>
+                        <div className={`font-medium ${
+                          s.cashVariance === 0 ? 'text-emerald-700' : Math.abs(s.cashVariance) <= 500 ? 'text-amber-700' : 'text-rose-700'
+                        }`}>
+                          {s.cashVariance === 0 ? 'Balanced' : s.cashVariance > 0 ? `Over by ${fmt(s.cashVariance)}` : `Short by ${fmt(Math.abs(s.cashVariance))}`}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </td>
+                    )}
+                  </td>
+                )}
                 <td className="px-5 py-3">
                   {s.clockOut
                     ? <span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-600">Completed</span>
@@ -3258,9 +3410,10 @@ const ExpensesView = () => {
 function DialloPOSShell({ titles }) {
   const { can } = useRole();
   const { lang } = useT();
-  const { online, products: liveProducts, customers: liveCustomers } = useData();
+  const { online, products: liveProducts, customers: liveCustomers, settings } = useData();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customers = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
+  const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
   const firstView = (c) => ['pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'shifts'].find(k => c[k]) || 'shifts';
   const [view, setView] = useState(() => firstView(can));
   const [mobileNav, setMobileNav] = useState(false);
@@ -3272,7 +3425,7 @@ function DialloPOSShell({ titles }) {
 
   // These three subtitles quote live counts in the static translation strings — replace
   // them with the real numbers instead of letting the demo figures show forever.
-  const lowStockCount = products.filter(p => p.stock < 10).length;
+  const lowStockCount = products.filter(p => p.stock < lowStockThreshold).length;
   const loyaltyCount = customers.filter(c => c.tier && c.tier !== 'Bronze').length;
   const dynamicSub = {
     inventory: lang === 'fr'

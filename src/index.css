@@ -3,3 +3,16 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; margin: 0; }
+
+/* Printing the receipt should only print the receipt paper, not the whole
+   app shell behind the modal. Scoped with :has() so it only kicks in when
+   the receipt is actually open — printing elsewhere (e.g. the Reports
+   page's "print to PDF" export) is unaffected. */
+@media print {
+  body:has(.print-receipt) * { visibility: hidden; }
+  body:has(.print-receipt) .print-receipt,
+  body:has(.print-receipt) .print-receipt * { visibility: visible; }
+  body:has(.print-receipt) .print-receipt {
+    position: absolute; top: 0; left: 0; width: 100%; box-shadow: none;
+  }
+}
