@@ -274,13 +274,14 @@ const AccessDenied = ({ feature }) => (
   </div>
 );
 
-// Clock-in belongs to the POS terminal/tablet at the counter, not a cashier's
-// own phone — buddy-punching from home is much easier on a personal device.
-// Tablets (iPad, Android tablets — they omit the "Mobile" UA token) are fine.
-const isPhoneUA = (ua = '') => {
-  if (/iPad/i.test(ua)) return false;
+// Shifts (clock-in, fingerprint registration, the Shifts nav item itself)
+// belong to the fixed POS terminal at the counter, not a handheld device —
+// buddy-punching from a personal phone or tablet is much easier than from
+// the till. Tablets used to get an exception; they no longer do.
+const isHandheldUA = (ua = '') => {
+  if (/iPad/i.test(ua)) return true;
   if (/iPhone|iPod/i.test(ua)) return true;
-  if (/Android/i.test(ua)) return /Mobile/i.test(ua);
+  if (/Android/i.test(ua)) return true;
   if (/Windows Phone/i.test(ua)) return true;
   return false;
 };
@@ -315,12 +316,12 @@ const ShiftProvider = ({ children }) => {
   useEffect(() => { refreshCredentials(); }, [user?.id]); // eslint-disable-line
 
   // Registers this device's fingerprint/biometric sensor against the
-  // logged-in user's account. Phones are refused here too — registering a
-  // phone would just let someone clock in from it later, the exact thing
-  // the phone ban is meant to prevent.
+  // logged-in user's account. Phones and tablets are refused here too —
+  // registering one would just let someone clock in from it later, the
+  // exact thing this restriction is meant to prevent.
   const registerFingerprint = async () => {
     if (!user) return;
-    if (isPhoneUA(navigator.userAgent)) { toast('Use the POS terminal or a tablet, not a phone', 'error'); return; }
+    if (isHandheldUA(navigator.userAgent)) { toast('Use the POS terminal for this — not a phone or tablet', 'error'); return; }
     if (!browserSupportsWebAuthn()) { toast('This browser does not support fingerprint/biometric sign-in', 'error'); return; }
     // Deliberately not gated on platformAuthenticatorIsAvailable() — that
     // check only recognizes built-in sensors (Windows Hello, Touch ID). An
@@ -352,8 +353,8 @@ const ShiftProvider = ({ children }) => {
   // be queued for later — there's no "offline fingerprint check" to replay.
   const clockIn = async () => {
     if (!user) return;
-    if (isPhoneUA(navigator.userAgent)) {
-      toast('Clock in from the POS terminal or a tablet, not a phone', 'error');
+    if (isHandheldUA(navigator.userAgent)) {
+      toast('Clock in from the POS terminal — not a phone or tablet', 'error');
       return;
     }
     if (!browserSupportsWebAuthn()) {
@@ -509,7 +510,10 @@ const Sidebar = ({ view, setView, mobileNav, closeNav }) => {
     { id: 'expenses', label: t('expenses') || 'Expenses', icon: Receipt },
     { id: 'shifts', label: t('shifts') || 'Shifts', icon: Clock },
   ];
-  const nav = allNav.filter(item => can[item.id]);
+  // Shifts is for the fixed POS terminal only — not visible (let alone
+  // reachable) from a phone or tablet, same device check clock-in itself uses.
+  const onHandheld = isHandheldUA(navigator.userAgent);
+  const nav = allNav.filter(item => can[item.id] && (item.id !== 'shifts' || !onHandheld));
   return (
     <aside className={`w-60 bg-white border-r border-stone-200/80 flex flex-col h-full flex-shrink-0 z-40 max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:shadow-2xl max-lg:transition-transform ${mobileNav ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}`}>
       <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
@@ -1174,7 +1178,11 @@ const POSView = () => {
               <AlertTriangle size={15} className="text-amber-700 mt-0.5 flex-shrink-0" />
               <div className="text-xs text-amber-900 leading-snug">
                 <div className="font-semibold">No cashier on the clock</div>
-                <div className="text-amber-800">Open the Shifts view and clock in a cashier to accept payments.</div>
+                <div className="text-amber-800">
+                  {isHandheldUA(navigator.userAgent)
+                    ? 'Clock in from the POS terminal to accept payments.'
+                    : 'Open the Shifts view and clock in a cashier to accept payments.'}
+                </div>
               </div>
             </div>
           )}
@@ -2960,7 +2968,7 @@ const ShiftsView = () => {
   const { shifts, activeShifts, myShift, clockIn, clockOut, credentials, registerFingerprint, removeFingerprint } = useShifts();
   const [clockOutModal, setClockOutModal] = useState(false);
   const [countedCash, setCountedCash] = useState('');
-  const onPhone = isPhoneUA(navigator.userAgent);
+  const onHandheld = isHandheldUA(navigator.userAgent);
   const hasFingerprint = credentials.length > 0;
 
   const isManager = user?.role === 'manager' || user?.role === 'admin';
@@ -3043,8 +3051,8 @@ const ShiftsView = () => {
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 On the clock since {fmtTime(myShift.clockIn)} · {duration(myShift.clockIn)}
               </div>
-            ) : onPhone ? (
-              <div className="text-sm text-amber-600 mt-0.5">Clock in from the POS terminal or a tablet, not a phone</div>
+            ) : onHandheld ? (
+              <div className="text-sm text-amber-600 mt-0.5">Clock in from the POS terminal — not a phone or tablet</div>
             ) : !hasFingerprint ? (
               <div className="text-sm text-amber-600 mt-0.5">Set up your fingerprint below before you can clock in</div>
             ) : (
@@ -3056,8 +3064,8 @@ const ShiftsView = () => {
               <ArrowUpLeft size={16} /> Clock out
             </button>
           ) : (
-            <button onClick={clockIn} disabled={onPhone || !hasFingerprint}
-              title={onPhone ? 'Clock in from the POS terminal or a tablet, not a phone' : !hasFingerprint ? 'Set up your fingerprint first' : undefined}
+            <button onClick={clockIn} disabled={onHandheld || !hasFingerprint}
+              title={onHandheld ? 'Clock in from the POS terminal — not a phone or tablet' : !hasFingerprint ? 'Set up your fingerprint first' : undefined}
               className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white text-sm font-medium hover:bg-emerald-800 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-900">
               <Fingerprint size={16} /> Clock in
             </button>
@@ -3067,7 +3075,7 @@ const ShiftsView = () => {
         {/* Fingerprint management — clock-in is verified against whatever's registered here.
             Up to 3 fingers, each its own scan (built-in or external/keyboard sensor — both work,
             as long as the device actually performs a biometric/PIN check). */}
-        {!onPhone && (
+        {!onHandheld && (
           <div className="mt-5 pt-5 border-t border-stone-100">
             <div className="flex items-center justify-between mb-3">
               <div className="text-[11px] uppercase tracking-widest text-stone-400 font-medium">Fingerprint sign-in</div>
@@ -3414,11 +3422,17 @@ function DialloPOSShell({ titles }) {
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customers = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
-  const firstView = (c) => ['pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'shifts'].find(k => c[k]) || 'shifts';
+  // Shifts is excluded here on a phone/tablet, same as the nav item itself —
+  // there's no URL-based routing in this app, so keeping both this default
+  // and the nav filter in sync is what actually makes the view unreachable.
+  const onHandheld = isHandheldUA(navigator.userAgent);
+  const firstView = (c) => ['pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'shifts']
+    .find(k => c[k] && (k !== 'shifts' || !onHandheld)) || (onHandheld ? 'pos' : 'shifts');
   const [view, setView] = useState(() => firstView(can));
   const [mobileNav, setMobileNav] = useState(false);
-  // If the current role loses access to the active view, fall back to its first allowed view.
-  React.useEffect(() => { if (!can[view]) setView(firstView(can)); }, [can, view]);
+  // If the current role loses access to the active view (or it's Shifts on a
+  // handheld device), fall back to its first allowed view.
+  React.useEffect(() => { if (!can[view] || (view === 'shifts' && onHandheld)) setView(firstView(can)); }, [can, view]);
   const go = (v) => { setView(v); setMobileNav(false); };
 
   const guarded = (key, label, El) => can[key] ? <El /> : <AccessDenied feature={label} />;
