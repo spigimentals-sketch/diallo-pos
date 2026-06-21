@@ -158,7 +158,8 @@ CREATE TABLE IF NOT EXISTS shifts (
   clockOut     TEXT,
   expectedCash INTEGER,
   countedCash  INTEGER,
-  cashVariance INTEGER
+  cashVariance INTEGER,
+  clockInPhoto TEXT
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -264,6 +265,7 @@ try {
   if (!shcols.includes('expectedCash')) db.exec('ALTER TABLE shifts ADD COLUMN expectedCash INTEGER');
   if (!shcols.includes('countedCash')) db.exec('ALTER TABLE shifts ADD COLUMN countedCash INTEGER');
   if (!shcols.includes('cashVariance')) db.exec('ALTER TABLE shifts ADD COLUMN cashVariance INTEGER');
+  if (!shcols.includes('clockInPhoto')) db.exec('ALTER TABLE shifts ADD COLUMN clockInPhoto TEXT');
 } catch (e) {
   console.warn('shifts cash-reconciliation migration skipped:', e.message);
 }
@@ -288,23 +290,6 @@ CREATE TABLE IF NOT EXISTS po_payments (
   note            TEXT,
   createdBy       TEXT,
   createdAt       TEXT
-);
-`);
-
-// Registered fingerprint/biometric credentials (WebAuthn), used to verify
-// clock-in really was performed by that person's own enrolled device sensor.
-// publicKey/transports are stored as base64url/JSON text since SQLite here
-// has no native binary-friendly column type round-trip in this wrapper.
-db.exec(`
-CREATE TABLE IF NOT EXISTS webauthn_credentials (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  userId       INTEGER NOT NULL,
-  credentialId TEXT UNIQUE NOT NULL,
-  publicKey    TEXT NOT NULL,
-  counter      INTEGER NOT NULL DEFAULT 0,
-  transports   TEXT,
-  deviceLabel  TEXT,
-  createdAt    TEXT
 );
 `);
 
