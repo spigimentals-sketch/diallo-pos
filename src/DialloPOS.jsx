@@ -55,7 +55,7 @@ const TRANSLATIONS = {
     complete_payment: 'Complete Payment', payment_received: 'Payment received',
     total_paid: 'Total paid', method: 'Method',
     print: 'Print', new_order: 'New order', view_receipt: 'View receipt',
-    in_stock: 'in stock', low: 'Low', out_of_stock: 'Out of stock',
+    in_stock: 'in stock', low: 'Low',
     // KPIs / Dashboard
     todays_sales: "Today's Sales", orders: 'Orders',
     low_stock_items: 'Low stock items',
@@ -153,7 +153,7 @@ const TRANSLATIONS = {
     complete_payment: 'Valider le paiement', payment_received: 'Paiement reçu',
     total_paid: 'Total payé', method: 'Mode',
     print: 'Imprimer', new_order: 'Nouvelle commande', view_receipt: 'Voir le reçu',
-    in_stock: 'en stock', low: 'Bas', out_of_stock: 'Épuisé',
+    in_stock: 'en stock', low: 'Bas',
     todays_sales: "Ventes du jour", orders: 'Commandes',
     low_stock_items: 'Stock bas',
     by_category: 'Par catégorie', share_of_sales: 'Part des ventes',
