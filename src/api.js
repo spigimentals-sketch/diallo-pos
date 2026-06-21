@@ -62,6 +62,8 @@ export const api = {
   getPurchaseOrders: () => req('GET', '/purchase-orders'),
   createPurchaseOrder: (po) => req('POST', '/purchase-orders', po),
   updatePurchaseOrder: (id, patch) => req('PATCH', `/purchase-orders/${id}`, patch),
+  recordPOPayment: (id, payment) => req('POST', `/purchase-orders/${id}/payments`, payment),
+  getPOPayments: (id) => req('GET', `/purchase-orders/${id}/payments`),
   // stock movements
   getStockMovements: () => req('GET', '/stock-movements'),
   // users
@@ -73,7 +75,7 @@ export const api = {
   getEmployees: () => req('GET', '/employees'),
   getShifts: () => req('GET', '/shifts'),
   clockIn: () => req('POST', '/shifts/clock-in'),
-  clockOut: () => req('POST', '/shifts/clock-out'),
+  clockOut: (countedCash) => req('POST', '/shifts/clock-out', { countedCash }),
   // orders / checkout
   createOrder: (o) => req('POST', '/orders', o),
   getOrders: () => req('GET', '/orders'),
@@ -81,10 +83,13 @@ export const api = {
   getSettings: () => req('GET', '/settings'),
   saveSettings: (s) => req('PUT', '/settings', s),
   // reports
-  salesReport: () => req('GET', '/reports/sales'),
+  salesReport: (days = 30) => req('GET', `/reports/sales?days=${days}`),
+  profitabilityReport: (limit = 5) => req('GET', `/reports/profitability?limit=${limit}`),
   inventoryReport: () => req('GET', '/reports/inventory'),
   rangeReport: (from, to) => req('GET', `/reports/range?from=${from}&to=${to}`),
   zReport: (date) => req('GET', `/reports/z?date=${date}`),
+  pnlReport: (from, to) => req('GET', `/reports/pnl?from=${from}&to=${to}`),
+  pnlTrend: (months = 6) => req('GET', `/reports/pnl-trend?months=${months}`),
   // expenses
   getExpenses: () => req('GET', '/expenses'),
   createExpense: (e) => req('POST', '/expenses', e),
@@ -113,7 +118,7 @@ const PENDING_KEY = 'diallo_pending_mutations';
 const MUTATION_HANDLERS = {
   order: { run: (p) => api.createOrder(p) },
   clockIn: { run: () => api.clockIn(), alreadyDone: (e) => /already clocked in/i.test(e.message || '') },
-  clockOut: { run: () => api.clockOut(), alreadyDone: (e) => /not clocked in/i.test(e.message || '') },
+  clockOut: { run: (p) => api.clockOut(p?.countedCash), alreadyDone: (e) => /not clocked in/i.test(e.message || '') },
   expense: { run: (p) => api.createExpense(p) },
 };
 

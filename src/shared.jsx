@@ -296,10 +296,27 @@ export function DataProvider({ fallback, children }) {
 /* ---------------- Entity forms ---------------- */
 const CATS = ['cosmetics', 'wines', 'whiskey', 'school_materials', 'perfumes', 'icecream', 'shawarma'];
 
+// A curated set covering this shop's actual categories, so picking an icon
+// per product is a couple of clicks instead of having to type/paste an
+// emoji character by hand.
+const PRODUCT_EMOJIS = [
+  '📦', '🛍️', '🎁',
+  '🍞', '🥖', '🧀', '🥛', '🍫', '🍪', '🍬', '🍭', '🧃', '☕', '🍵', '🥤', '🍯', '🥚',
+  '🍎', '🍌', '🍇', '🍅', '🥔', '🧅', '🌶️', '🧂', '🍚', '🍝', '🥫',
+  '🍷', '🍾', '🥂', '🍺', '🍻', '🥃',
+  '💄', '💅', '🧴', '🪞', '🧼', '🧻',
+  '✨', '🌸',
+  '📚', '✏️', '📓', '📐', '✂️', '🖊️',
+  '🍦', '🍨', '🍧',
+  '🌯', '🥙', '🍖', '🍗', '🥩',
+  '🧹', '🪣', '🔋', '💡',
+  '📱', '💻', '🔌', '🎧',
+];
+
 export function ProductForm({ open, onClose, initial }) {
   const { upsertProduct, patch } = useData();
   const { toast } = useToast();
-  const blank = { name: '', name_fr: '', category: 'cosmetics', price: 0, cost: 0, discount: 0, stock: 0, sku: '', emoji: '📦', image: null };
+  const blank = { name: '', name_fr: '', category: 'cosmetics', price: 0, cost: 0, stock: 0, sku: '', emoji: '📦', image: null };
   const [form, setForm] = useState(initial || blank);
   const [uploading, setUploading] = useState(false);
   const [autoGenerateSku, setAutoGenerateSku] = useState(false);
@@ -364,7 +381,10 @@ export function ProductForm({ open, onClose, initial }) {
   // an offline edit replayed later could silently overwrite newer changes
   // someone else made in the meantime, which is worse than asking for a retry.
   const save = async () => {
-    const payload = { ...form, price: Number(form.price), cost: Number(form.cost || 0), discount: Number(form.discount || 0), stock: Number(form.stock) };
+    // Discounts are no longer a thing this app supports — explicitly zero it
+    // out on every save so editing an old product clears any discount it
+    // still had from before this feature was removed.
+    const payload = { ...form, price: Number(form.price), cost: Number(form.cost || 0), discount: 0, stock: Number(form.stock) };
     if (!payload.sku) payload.sku = makeSku(payload.category);
     try {
       const saved = initial?.id
@@ -426,19 +446,28 @@ export function ProductForm({ open, onClose, initial }) {
 
       <Field label="Name (EN)"><Input value={form.name} onChange={set('name')} /></Field>
       <Field label="Name (FR)"><Input value={form.name_fr} onChange={set('name_fr')} /></Field>
+
+      <Field label="Icon (shown when there's no photo)">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-10 h-10 rounded-lg bg-stone-100 border border-stone-200 flex items-center justify-center text-xl flex-shrink-0">{form.emoji || '📦'}</div>
+          <Input value={form.emoji} onChange={set('emoji')} placeholder="Pick below, or type/paste any emoji" />
+        </div>
+        <div className="grid grid-cols-10 gap-1 p-2 border border-stone-200 rounded-lg max-h-28 overflow-y-auto">
+          {PRODUCT_EMOJIS.map((em) => (
+            <button key={em} type="button" onClick={() => setForm(f => ({ ...f, emoji: em }))}
+              className={`text-lg w-7 h-7 rounded-md flex items-center justify-center hover:bg-stone-100 ${form.emoji === em ? 'bg-emerald-100 ring-2 ring-emerald-500' : ''}`}>
+              {em}
+            </button>
+          ))}
+        </div>
+      </Field>
+
       <div className="grid grid-cols-2 gap-3">
         <Field label="Category"><SelectInput value={form.category} onChange={set('category')} options={CATS.map(c => ({ value: c, label: c }))} /></Field>
-        <Field label="Emoji (fallback)"><Input value={form.emoji} onChange={set('emoji')} /></Field>
         <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
         <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
-        <Field label="Discount (%)"><Input type="number" value={form.discount} onChange={set('discount')} /></Field>
         <Field label="Stock"><Input type="number" value={form.stock} onChange={set('stock')} /></Field>
       </div>
-      {Number(form.discount) > 0 && Number(form.price) > 0 && (
-        <div className="-mt-1 mb-1 text-xs text-stone-500">
-          Sells at <span className="font-medium text-emerald-700">{Math.round(Number(form.price) * (1 - Number(form.discount) / 100)).toLocaleString()} FCFA</span> after {Number(form.discount)}% discount
-        </div>
-      )}
       {Number(form.price) > 0 && Number(form.cost) > 0 && (
         <div className="-mt-1 mb-1 text-xs text-stone-500">
           Margin: <span className="font-medium text-emerald-700">{(Number(form.price) - Number(form.cost)).toLocaleString()} FCFA</span>
@@ -543,7 +572,7 @@ export function UserForm({ open, onClose, initial }) {
 export function POForm({ open, onClose }) {
   const { suppliers, upsertPO } = useData();
   const { toast } = useToast();
-  const blank = { supplierId: suppliers[0]?.id || null, items: 1, total: 0, status: 'draft' };
+  const blank = { supplierId: suppliers[0]?.id || null, items: 1, total: 0, status: 'draft', dueDate: '' };
   const [form, setForm] = useState(blank);
   useEffect(() => { setForm({ ...blank, supplierId: suppliers[0]?.id || null }); }, [open]); // eslint-disable-line
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -551,7 +580,7 @@ export function POForm({ open, onClose }) {
   // queued offline.
   const save = async () => {
     const sup = suppliers.find(s => String(s.id) === String(form.supplierId));
-    const payload = { supplierId: Number(form.supplierId), supplier: sup?.name || '', items: Number(form.items), total: Number(form.total), status: form.status };
+    const payload = { supplierId: Number(form.supplierId), supplier: sup?.name || '', items: Number(form.items), total: Number(form.total), status: form.status, dueDate: form.dueDate || null };
     try {
       const saved = await api.createPurchaseOrder(payload);
       upsertPO(saved);
@@ -571,6 +600,7 @@ export function POForm({ open, onClose }) {
         <Field label="Items"><Input type="number" value={form.items} onChange={set('items')} /></Field>
         <Field label="Total (FCFA)"><Input type="number" value={form.total} onChange={set('total')} /></Field>
       </div>
+      <Field label="Due date (optional)"><Input type="date" value={form.dueDate} onChange={set('dueDate')} /></Field>
     </Modal>
   );
 }

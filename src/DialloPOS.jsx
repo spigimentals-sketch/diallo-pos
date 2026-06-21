@@ -2,22 +2,22 @@
 import React, { useState, useMemo, useContext, createContext, useEffect, useRef } from 'react';
 import api, { imageUrl } from './api.js';
 import {
-  ToastProvider, useToast, DataProvider, useData, Modal,
+  ToastProvider, useToast, DataProvider, useData, Modal, Field, Input,
   ProductForm, SupplierForm, UserForm, POForm,
   downloadCsv, downloadJson, PrimaryBtn, GhostBtn,
   AuthProvider, useAuth, LoginScreen,
 } from './shared.jsx';
 import {
-  ShoppingCart, Package, Users, Store, BarChart3, Settings,
+  ShoppingCart, Package, Users, BarChart3, Settings,
   Search, Scan, Plus, Minus, X, CreditCard, Banknote, Smartphone,
   Bell, TrendingUp, AlertTriangle, CheckCircle2,
-  Gift, Receipt, FileText, ChevronRight, Download,
+  Receipt, FileText, ChevronRight, Download,
   Apple, Beef, Milk, Cookie, Wine, Sparkles, Coffee, Wheat,
   ArrowUpRight, ArrowDownRight, Calendar, Star, Award, Zap,
   Building2, MapPin, Trash2, LayoutGrid, LogOut, HelpCircle,
   Clock, UserCircle2, Printer, Wallet, Truck, ClipboardList,
   ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
-  Globe, Building, Hash, Percent, ShieldCheck, Monitor, BellRing,
+  Globe, Building, Hash, Percent, ShieldCheck, BellRing,
   Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -36,7 +36,6 @@ const TRANSLATIONS = {
     sub_dash: 'Overview of all your stores',
     sub_inv: '2,847 products · 14 alerts',
     sub_cust: '1,248 customers · 864 loyalty members',
-    sub_stores: '4 active locations',
     sub_reports: 'TVA-compliant exports for DGI',
     sub_settings: 'Configure your business and POS',
     sub_shifts: 'Track employee clock-in and clock-out',
@@ -49,7 +48,7 @@ const TRANSLATIONS = {
     customer: 'Customer', add_customer: 'Add customer',
     order: 'Order', items: 'items', clear: 'Clear',
     cart_empty: 'Cart is empty', tap_to_add: 'Tap products to add',
-    subtotal: 'Subtotal', discount: 'discount', total: 'Total',
+    subtotal: 'Subtotal', total: 'Total',
     earns: 'Earns', pts: 'pts',
     cash: 'Cash', card: 'Card', mobile: 'Mobile',
     complete_payment: 'Complete Payment', payment_received: 'Payment received',
@@ -58,13 +57,9 @@ const TRANSLATIONS = {
     in_stock: 'in stock', low: 'Low',
     // KPIs / Dashboard
     todays_sales: "Today's Sales", orders: 'Orders',
-    low_stock_items: 'Low stock items', sales_this_week: 'Sales this week',
-    revenue_all: 'Revenue across all stores',
+    low_stock_items: 'Low stock items',
     by_category: 'By category', share_of_sales: 'Share of sales',
-    top_products: 'Top selling products', best_perf: 'Best performers this week',
-    achievement: 'Achievement', weekly_target: 'Weekly target reached',
-    weekly_target_desc: 'All four stores have exceeded their weekly sales target for the third week in a row.',
-    progress: 'Progress', view_report: 'View report',
+    view_report: 'View report',
     // Inventory tabs
     products: 'Products', suppliers: 'Suppliers',
     purchase_orders: 'Purchase Orders', stock_movements: 'Stock Movements',
@@ -92,21 +87,16 @@ const TRANSLATIONS = {
     tier: 'Tier', points: 'Points', visits: 'Visits',
     lifetime_value: 'Lifetime Value', view_all: 'View all',
     recent_customers: 'Recent customers', top_spenders: 'Top spenders this month',
-    // Stores
-    total_stores: 'Total Stores', combined_revenue: 'Combined Revenue',
-    active_cashiers: 'Active Cashiers', avg_transaction: 'Avg. Transaction',
-    open: 'Open', monthly: 'Monthly', growth: 'Growth', healthy: 'Healthy',
-    store_comparison: 'Store comparison', monthly_by_location: 'Monthly revenue by location',
     // Reports
     sales_report: 'Sales Report', sales_report_desc: 'Daily, weekly, and monthly breakdowns',
     tva_einv: 'TVA / e-Invoice', tva_einv_desc: 'DGI-compliant electronic invoicing',
     inv_report: 'Inventory Report', inv_report_desc: 'Stock levels, movement, and valuation',
     generate: 'Generate', export_pdf: 'Export PDF',
-    revenue_trend: 'Revenue & orders trend', past_7_days: 'Past 7 days, all stores',
+    revenue_trend: 'Revenue & orders trend', past_7_days: 'Past 7 days',
     integrations: 'Integrations', connected: 'Connected',
     // Settings tabs
     s_general: 'General', s_business: 'Business', s_receipt: 'Receipt',
-    s_tax: 'Tax', s_payments: 'Payments', s_hardware: 'Hardware',
+    s_tax: 'Tax', s_payments: 'Payments',
     s_users: 'Users', s_notifications: 'Notifications',
     save_changes: 'Save changes', cancel: 'Cancel',
     business_name: 'Business name', currency: 'Currency',
@@ -120,8 +110,6 @@ const TRANSLATIONS = {
     tax_id_print: 'Print tax ID on receipts',
     accept_cash: 'Accept cash', accept_card: 'Accept cards',
     accept_mobile: 'Accept mobile money',
-    barcode_scanner: 'Barcode scanner', receipt_printer: 'Receipt printer',
-    cash_drawer: 'Cash drawer', customer_display: 'Customer display',
     role: 'Role', permissions: 'Permissions', last_active: 'Last active',
     admin: 'Admin', manager: 'Manager', cashier: 'Cashier',
     low_stock_threshold: 'Low stock threshold',
@@ -146,7 +134,6 @@ const TRANSLATIONS = {
     sub_dash: 'Vue d\'ensemble de vos magasins',
     sub_inv: '2 847 produits · 14 alertes',
     sub_cust: '1 248 clients · 864 membres fidélité',
-    sub_stores: '4 emplacements actifs',
     sub_reports: 'Exports conformes DGI',
     sub_settings: 'Configurez votre entreprise et la caisse',
     sub_shifts: 'Suivez les arrivées et départs des employés',
@@ -158,7 +145,7 @@ const TRANSLATIONS = {
     customer: 'Client', add_customer: 'Ajouter client',
     order: 'Commande', items: 'articles', clear: 'Vider',
     cart_empty: 'Panier vide', tap_to_add: 'Touchez un produit pour l\'ajouter',
-    subtotal: 'Sous-total', discount: 'remise', total: 'Total',
+    subtotal: 'Sous-total', total: 'Total',
     earns: 'Gagne', pts: 'pts',
     cash: 'Espèces', card: 'Carte', mobile: 'Mobile',
     complete_payment: 'Valider le paiement', payment_received: 'Paiement reçu',
@@ -166,13 +153,9 @@ const TRANSLATIONS = {
     print: 'Imprimer', new_order: 'Nouvelle commande', view_receipt: 'Voir le reçu',
     in_stock: 'en stock', low: 'Bas',
     todays_sales: "Ventes du jour", orders: 'Commandes',
-    low_stock_items: 'Stock bas', sales_this_week: 'Ventes de la semaine',
-    revenue_all: 'Recettes de tous les magasins',
+    low_stock_items: 'Stock bas',
     by_category: 'Par catégorie', share_of_sales: 'Part des ventes',
-    top_products: 'Meilleures ventes', best_perf: 'Top performers cette semaine',
-    achievement: 'Réussite', weekly_target: 'Objectif atteint',
-    weekly_target_desc: 'Les quatre magasins ont dépassé leur objectif hebdomadaire pour la troisième semaine consécutive.',
-    progress: 'Progression', view_report: 'Voir le rapport',
+    view_report: 'Voir le rapport',
     products: 'Produits', suppliers: 'Fournisseurs',
     purchase_orders: 'Bons de commande', stock_movements: 'Mouvements de stock',
     total_skus: 'Total SKU', stock_value: 'Valeur stock',
@@ -195,18 +178,14 @@ const TRANSLATIONS = {
     tier: 'Niveau', points: 'Points', visits: 'Visites',
     lifetime_value: 'Valeur à vie', view_all: 'Tout voir',
     recent_customers: 'Clients récents', top_spenders: 'Plus gros acheteurs ce mois',
-    total_stores: 'Total Magasins', combined_revenue: 'Recettes Combinées',
-    active_cashiers: 'Caissiers Actifs', avg_transaction: 'Transaction Moy.',
-    open: 'Ouvert', monthly: 'Mensuel', growth: 'Croissance', healthy: 'Sain',
-    store_comparison: 'Comparaison magasins', monthly_by_location: 'Recettes mensuelles par lieu',
     sales_report: 'Rapport de ventes', sales_report_desc: 'Décomposition quotidienne, hebdomadaire et mensuelle',
     tva_einv: 'TVA / Facturation', tva_einv_desc: 'Facturation électronique conforme DGI',
     inv_report: 'Rapport inventaire', inv_report_desc: 'Niveaux, mouvements et valorisation',
     generate: 'Générer', export_pdf: 'Exporter PDF',
-    revenue_trend: 'Tendance recettes & commandes', past_7_days: '7 derniers jours, tous magasins',
+    revenue_trend: 'Tendance recettes & commandes', past_7_days: '7 derniers jours',
     integrations: 'Intégrations', connected: 'Connecté',
     s_general: 'Général', s_business: 'Entreprise', s_receipt: 'Reçu',
-    s_tax: 'Taxes', s_payments: 'Paiements', s_hardware: 'Matériel',
+    s_tax: 'Taxes', s_payments: 'Paiements',
     s_users: 'Utilisateurs', s_notifications: 'Notifications',
     save_changes: 'Enregistrer', cancel: 'Annuler',
     business_name: 'Nom de l\'entreprise', currency: 'Devise',
@@ -220,8 +199,6 @@ const TRANSLATIONS = {
     tax_id_print: 'Imprimer NIU sur les reçus',
     accept_cash: 'Accepter espèces', accept_card: 'Accepter cartes',
     accept_mobile: 'Accepter mobile money',
-    barcode_scanner: 'Lecteur code-barres', receipt_printer: 'Imprimante reçus',
-    cash_drawer: 'Tiroir-caisse', customer_display: 'Écran client',
     role: 'Rôle', permissions: 'Permissions', last_active: 'Actif',
     admin: 'Administrateur', manager: 'Gestionnaire', cashier: 'Caissier',
     low_stock_threshold: 'Seuil stock bas',
@@ -259,13 +236,13 @@ const useShifts = () => useContext(ShiftContext);
 // accountant -> read-only finance role: dashboard, inventory (no edit), customers, reports
 //               with cost/margin + accounting, shifts (view), expenses. NO checkout, NO edits.
 const ROLE_ACCESS = {
-  admin:   { pos: true, dashboard: true, inventory: true, customers: true, stores: true, reports: true, shifts: true, settings: true, expenses: true,
+  admin:   { pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true,
              seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
-  manager: { pos: true, dashboard: true, inventory: true, customers: true, stores: true, reports: true, shifts: true, settings: false, expenses: true,
+  manager: { pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
-  cashier: { pos: true, dashboard: false, inventory: false, customers: false, stores: false, reports: false, shifts: true, settings: false, expenses: false,
+  cashier: { pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
-  accountant: { pos: false, dashboard: true, inventory: true, customers: true, stores: true, reports: true, shifts: true, settings: false, expenses: true,
+  accountant: { pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
              seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
 };
 const RoleContext = createContext(null);
@@ -328,14 +305,16 @@ const ShiftProvider = ({ children }) => {
       }
     }
   };
-  const clockOut = async () => {
+  // countedCash is the cash drawer amount counted at clock-out, for the
+  // per-shift reconciliation the server computes (expected vs counted).
+  const clockOut = async (countedCash) => {
     if (!user) return;
     try {
-      await api.clockOut();
+      await api.clockOut(countedCash);
       refresh();
     } catch (e) {
       if (!e.status) {
-        queueMutation('clockOut', {});
+        queueMutation('clockOut', { countedCash });
         patch('shifts', list => list.map(s => String(s.employeeId) === String(user.id) && !s.clockOut ? { ...s, clockOut: new Date().toISOString() } : s));
         toast('Offline — clock-out saved on this device, will sync automatically once back online', 'info');
       } else {
@@ -374,13 +353,6 @@ const CUSTOMERS = [
   { id: 4, name: 'Samuel Nkomo', phone: '+237 6 71 23 45 67', points: 340, tier: 'Bronze', visits: 12, spent: 67000 },
 ];
 
-const STORES = [
-  { id: 1, name: 'Diallo Central — Yaoundé', address: 'Avenue Kennedy, Centre-Ville', sales: 2840000, growth: 12.4 },
-  { id: 2, name: 'Diallo Bastos — Yaoundé', address: 'Quartier Bastos', sales: 1920000, growth: 8.1 },
-  { id: 3, name: 'Diallo Akwa — Douala', address: 'Boulevard de la Liberté', sales: 3120000, growth: 15.7 },
-  { id: 4, name: 'Diallo Bonanjo — Douala', address: 'Place du Gouvernement', sales: 1640000, growth: -2.3 },
-];
-
 const SUPPLIERS = [
   { id: 1, name: 'Beauty Central', contact: 'Pierre Etoga', phone: '+237 6 77 11 22 33', email: 'p.etoga@beautycentral.cm', productsCount: 0, lastOrder: '2026-05-20', status: 'active', category: 'Cosmetics' },
   { id: 2, name: 'Cameroon Wine Co.', contact: 'Sylvie Manga', phone: '+237 6 91 88 77 66', email: 'contact@camwine.cm', productsCount: 0, lastOrder: '2026-05-24', status: 'active', category: 'Wines' },
@@ -402,14 +374,6 @@ const USERS_DATA = [
   { id: 5, name: 'David Onana', role: 'manager', email: 'david@diallo.cm', lastActive: '3 hours ago', store: 'Akwa' },
 ];
 
-const SALES_CHART = [
-  { day: 'Mon', sales: 285000, orders: 142 }, { day: 'Tue', sales: 312000, orders: 168 },
-  { day: 'Wed', sales: 298000, orders: 155 }, { day: 'Thu', sales: 380000, orders: 198 },
-  { day: 'Fri', sales: 425000, orders: 224 }, { day: 'Sat', sales: 512000, orders: 287 },
-  { day: 'Sun', sales: 348000, orders: 184 },
-];
-
-const CATEGORY_BREAKDOWN = [];
 // ============ HELPERS ============
 const fmt = (n) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' FCFA';
 const fmtShort = (n) => {
@@ -474,7 +438,6 @@ const Sidebar = ({ view, setView, mobileNav, closeNav }) => {
     { id: 'dashboard', label: t('dashboard'), icon: BarChart3 },
     { id: 'inventory', label: t('inventory'), icon: Package },
     { id: 'customers', label: t('customers'), icon: Users },
-    { id: 'stores', label: t('stores'), icon: Store },
     { id: 'reports', label: t('reports'), icon: FileText },
     { id: 'expenses', label: t('expenses') || 'Expenses', icon: Receipt },
     { id: 'shifts', label: t('shifts') || 'Shifts', icon: Clock },
@@ -750,11 +713,6 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
               {/* Totals */}
               <div className="space-y-0.5 text-[11px]">
                 <div className="flex justify-between"><span>{t('subtotal')}</span><span>{fmt(subtotal)}</span></div>
-                {discount > 0 && customer && (
-                  <div className="flex justify-between text-emerald-700">
-                    <span>{customer.tier} {t('discount')}</span><span>−{fmt(discount)}</span>
-                  </div>
-                )}
                 <div className="flex justify-between"><span>TVA</span><span>{fmt(tva)}</span></div>
                 <div className="border-t border-stone-900 my-1.5" />
                 <div className="flex justify-between font-bold text-sm">
@@ -898,14 +856,10 @@ const POSView = () => {
   ), [activeCat, search, lang, products]);
 
   const addToCart = (product) => {
-    // Apply any per-product discount to the unit price used in the cart.
-    const disc = Number(product.discount || 0);
-    const effPrice = disc > 0 ? Math.round(product.price * (1 - disc / 100)) : product.price;
-    const item = { ...product, price: effPrice, listPrice: product.price };
     setCart(prev => {
       const ex = prev.find(i => i.id === product.id);
       if (ex) return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i);
-      return [...prev, { ...item, qty: 1 }];
+      return [...prev, { ...product, qty: 1 }];
     });
   };
   const updateQty = (id, delta) => setCart(prev => prev.map(i => i.id === id ? { ...i, qty: Math.max(0, i.qty + delta) } : i).filter(i => i.qty > 0));
@@ -928,9 +882,8 @@ const POSView = () => {
   const handleScan = () => setShowScan(true);
 
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const discount = customer?.tier === 'Platinum' ? subtotal * 0.05 : customer?.tier === 'Gold' ? subtotal * 0.03 : 0;
-  const tva = (subtotal - discount) * tvaRate;
-  const total = subtotal - discount + tva;
+  const tva = subtotal * tvaRate;
+  const total = subtotal + tva;
   const earnedPoints = Math.floor(total / 1000);
 
   const completePayment = async () => {
@@ -942,7 +895,7 @@ const POSView = () => {
     const payload = {
       items: cart.map(i => ({ id: i.id, name: i.name, sku: i.sku, price: i.price, qty: i.qty })),
       customerId: customer?.id || null,
-      method: paymentMethod, cashier: activeCashier.name, discount, tva, clientOrderId,
+      method: paymentMethod, cashier: activeCashier.name, tva, clientOrderId,
     };
     try {
       const order = await api.createOrder(payload);
@@ -965,7 +918,7 @@ const POSView = () => {
 
   const startNewOrder = () => { setCart([]); setShowReceipt(false); };
 
-  const receiptData = { items: cart, subtotal, discount, tva, total, customer, method: paymentMethod, earnedPoints, invoiceNo: lastInvoice };
+  const receiptData = { items: cart, subtotal, tva, total, customer, method: paymentMethod, earnedPoints, invoiceNo: lastInvoice };
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
@@ -1018,23 +971,13 @@ const POSView = () => {
                       <AlertTriangle size={9} /> {t('low')}
                     </div>
                   )}
-                  {Number(p.discount) > 0 && (
-                    <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-rose-600 text-white text-[10px] font-semibold rounded-md">−{Number(p.discount)}%</div>
-                  )}
                   <div className="aspect-square rounded-xl bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center mb-3 text-4xl group-hover:scale-105 transition-transform overflow-hidden">
                     {p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}
                   </div>
                   <div className="text-[11px] text-stone-400 font-mono mb-0.5">{p.sku}</div>
                   <div className="text-sm font-medium text-stone-900 leading-tight line-clamp-2 mb-1.5 min-h-[2.5em]">{productName(p)}</div>
                   <div className="flex items-end justify-between">
-                    {Number(p.discount) > 0 ? (
-                      <div>
-                        <div className="text-[10px] text-stone-400 line-through">{fmt(p.price)}</div>
-                        <div className="font-serif text-emerald-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(Math.round(p.price * (1 - Number(p.discount) / 100)))}</div>
-                      </div>
-                    ) : (
-                      <div className="font-serif text-emerald-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(p.price)}</div>
-                    )}
+                    <div className="font-serif text-emerald-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(p.price)}</div>
                     <div className="text-[10px] text-stone-500">{p.stock} {t('in_stock')}</div>
                   </div>
                 </button>
@@ -1108,12 +1051,6 @@ const POSView = () => {
         <div className="border-t border-stone-200/80 p-5 bg-stone-50/50 flex-shrink-0">
           <div className="space-y-1.5 mb-4 text-sm">
             <div className="flex justify-between text-stone-600"><span>{t('subtotal')}</span><span>{fmt(subtotal)}</span></div>
-            {discount > 0 && (
-              <div className="flex justify-between text-emerald-700">
-                <span className="flex items-center gap-1"><Gift size={12} /> {customer.tier} {t('discount')}</span>
-                <span>−{fmt(discount)}</span>
-              </div>
-            )}
             <div className="flex justify-between text-stone-600"><span>TVA ({(tvaRate * 100).toLocaleString()}%)</span><span>{fmt(tva)}</span></div>
             <div className="h-px bg-stone-200 my-2" />
             <div className="flex justify-between items-baseline">
@@ -1192,27 +1129,57 @@ const POSView = () => {
 
 // ============ DASHBOARD ============
 const DashboardView = () => {
-  const { t } = useT();
+  const { t, lang } = useT();
   const { online, products: liveProducts, customers: liveCustomers } = useData();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customers = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
   const [range, setRange] = useState('7D');
   const [report, setReport] = useState(null);
+  const [profitability, setProfitability] = useState([]);
+  const [monthPnl, setMonthPnl] = useState(null);
+  const [todayPnl, setTodayPnl] = useState(null);
 
-  // Pull live totals when the backend is up.
+  // Pull live totals when the backend is up. Re-fetches whenever the
+  // 7D/30D/90D range changes (controls how much history to ask for), and
+  // whenever `liveProducts` gets a new reference — that happens on every
+  // global refresh() call, including after "Clear all data" in Settings, so
+  // these reports don't keep showing stale numbers from before a reset.
+  const daysFor = (r) => ({ '7D': 7, '30D': 30, '90D': 90 }[r] || 7);
   useEffect(() => {
     if (!online) return;
-    api.salesReport().then(setReport).catch(() => {});
-  }, [online]);
+    api.salesReport(daysFor(range)).then(setReport).catch(() => {});
+  }, [online, range, liveProducts]);
+  useEffect(() => {
+    if (!online) return;
+    api.profitabilityReport(5).then(setProfitability).catch(() => {});
+    const today = new Date();
+    const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+    const todayStr = today.toISOString().slice(0, 10);
+    api.pnlReport(monthStart, todayStr).then(setMonthPnl).catch(() => {});
+    api.pnlReport(todayStr, todayStr).then(setTodayPnl).catch(() => {});
+  }, [online, liveProducts]);
 
-  // Scale the chart window to the selected range (demo data is daily).
-  const chartData = useMemo(() => {
-    if (range === '7D') return SALES_CHART;
-    const reps = range === '30D' ? 4 : 12;
-    return Array.from({ length: reps }).flatMap((_, k) =>
-      SALES_CHART.map(d => ({ ...d, day: `${d.day}${reps > 4 ? '·' + (k + 1) : ''}`, sales: Math.round(d.sales * (0.85 + Math.random() * 0.3)) }))
-    );
-  }, [range]);
+  // Real daily revenue for the selected window, with a readable date label.
+  const chartData = useMemo(() => (report?.daily || []).map(d => ({
+    ...d,
+    label: new Date(d.day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+  })), [report]);
+
+  // Real category breakdown for the same window, replacing the old empty
+  // placeholder pie chart. Colors cycle through a small fixed palette.
+  const PIE_COLORS = ['#047857', '#f59e0b', '#0ea5e9', '#e11d48', '#8b5cf6', '#14b8a6', '#f97316'];
+  const categoryBreakdown = useMemo(() => {
+    const rows = report?.byCategory || [];
+    const total = rows.reduce((s, r) => s + r.sales, 0);
+    return rows.map((r, i) => {
+      const cat = CATEGORIES.find(c => c.id === r.category);
+      return {
+        name: cat ? t(cat.tKey) : r.category,
+        value: total ? Math.round((r.sales / total) * 100) : 0,
+        color: PIE_COLORS[i % PIE_COLORS.length],
+      };
+    });
+  }, [report, t]);
 
   const lowCount = products.filter(p => p.stock < 10).length;
   const todaysSales = report?.totals?.revenue != null ? fmt(report.totals.revenue) : '0 FCFA';
@@ -1220,8 +1187,14 @@ const DashboardView = () => {
 
   return (
     <div className="flex-1 overflow-y-auto bg-gradient-to-br from-stone-50 via-white to-emerald-50/20 p-4 sm:p-7">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
         <KpiCard label={t('todays_sales')} value={todaysSales} icon={TrendingUp} accent="bg-emerald-50 text-emerald-700" />
+        <KpiCard
+          label={lang === 'fr' ? "Profit du jour" : "Today's Profit"}
+          value={todayPnl ? fmt(todayPnl.netProfit) : '0 FCFA'}
+          icon={Wallet}
+          accent={todayPnl && todayPnl.netProfit < 0 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}
+        />
         <KpiCard label={t('orders')} value={ordersCount} icon={Receipt} accent="bg-amber-50 text-amber-700" />
         <KpiCard label={t('customers')} value={String(customers.length)} icon={Users} accent="bg-rose-50 text-rose-700" />
         <KpiCard label={t('low_stock_items')} value={String(lowCount)} icon={AlertTriangle} accent="bg-orange-50 text-orange-700" />
@@ -1231,8 +1204,10 @@ const DashboardView = () => {
         <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-stone-200/80">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('sales_this_week')}</h3>
-              <p className="text-xs text-stone-500 mt-0.5">{t('revenue_all')}</p>
+              <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+                {lang === 'fr' ? 'Ventes' : 'Sales'} — {{ '7D': lang === 'fr' ? '7 derniers jours' : 'last 7 days', '30D': lang === 'fr' ? '30 derniers jours' : 'last 30 days', '90D': lang === 'fr' ? '90 derniers jours' : 'last 90 days' }[range]}
+              </h3>
+              <p className="text-xs text-stone-500 mt-0.5">{lang === 'fr' ? 'Revenu réel des ventes enregistrées' : 'Real revenue from recorded sales'}</p>
             </div>
             <div className="flex gap-1 text-xs">
               {['7D', '30D', '90D'].map((p) => (
@@ -1240,36 +1215,44 @@ const DashboardView = () => {
               ))}
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={chartData}>
-              <defs>
-                <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#059669" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#059669" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
-              <XAxis dataKey="day" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
-              <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v) => fmt(v)} />
-              <Area type="monotone" dataKey="sales" stroke="#047857" strokeWidth={2.5} fill="url(#grad1)" />
-            </AreaChart>
-          </ResponsiveContainer>
+          {chartData.length === 0 ? (
+            <div className="h-[240px] flex items-center justify-center text-sm text-stone-400">No sales recorded yet.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#059669" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#059669" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
+                <XAxis dataKey="label" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
+                <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v) => fmt(v)} />
+                <Area type="monotone" dataKey="sales" stroke="#047857" strokeWidth={2.5} fill="url(#grad1)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl p-5 border border-stone-200/80">
           <h3 className="font-serif text-lg text-stone-900 mb-1" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('by_category')}</h3>
           <p className="text-xs text-stone-500 mb-3">{t('share_of_sales')}</p>
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie data={CATEGORY_BREAKDOWN} dataKey="value" innerRadius={45} outerRadius={75} paddingAngle={2}>
-                {CATEGORY_BREAKDOWN.map((e, i) => <Cell key={i} fill={e.color} />)}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} />
-            </PieChart>
-          </ResponsiveContainer>
+          {categoryBreakdown.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-sm text-stone-400">No sales recorded yet.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
+              <PieChart>
+                <Pie data={categoryBreakdown} dataKey="value" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                  {categoryBreakdown.map((e, i) => <Cell key={i} fill={e.color} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
           <div className="space-y-1.5 mt-2">
-            {CATEGORY_BREAKDOWN.slice(0, 4).map(c => (
+            {categoryBreakdown.slice(0, 4).map(c => (
               <div key={c.name} className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full" style={{ background: c.color }} />
@@ -1286,31 +1269,37 @@ const DashboardView = () => {
         <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-stone-200/80">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('top_products')}</h3>
-              <p className="text-xs text-stone-500 mt-0.5">{t('best_perf')}</p>
+              <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Most profitable products</h3>
+              <p className="text-xs text-stone-500 mt-0.5">Ranked by actual profit contribution, not just units sold</p>
             </div>
           </div>
-          <div className="space-y-2.5">
-            {PRODUCTS.slice(0, 5).map((p, i) => (
-              <div key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-stone-50">
-                <div className="w-7 h-7 rounded-md bg-stone-100 flex items-center justify-center text-xs font-mono text-stone-500">{i + 1}</div>
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center text-2xl overflow-hidden">{p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-stone-900 truncate">{p.name}</div>
-                  <div className="text-xs text-stone-500 truncate">{p.sku}</div>
-                </div>
-                <div className="hidden sm:block flex-1 max-w-[180px]">
-                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-700 rounded-full" style={{ width: `${100 - i * 14}%` }} />
+          {profitability.length === 0 ? (
+            <div className="text-sm text-stone-400 py-6 text-center">No sales recorded yet.</div>
+          ) : (
+            <div className="space-y-2.5">
+              {profitability.map((p, i) => {
+                const maxProfit = profitability[0]?.grossProfit || 1;
+                return (
+                  <div key={p.productId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-stone-50">
+                    <div className="w-7 h-7 rounded-md bg-stone-100 flex items-center justify-center text-xs font-mono text-stone-500">{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-stone-900 truncate">{p.name}</div>
+                      <div className="text-xs text-stone-500 truncate">{p.sku}</div>
+                    </div>
+                    <div className="hidden sm:block flex-1 max-w-[180px]">
+                      <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-700 rounded-full" style={{ width: `${Math.max(4, (p.grossProfit / maxProfit) * 100)}%` }} />
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-sm font-medium text-stone-900">{fmt(p.grossProfit)}</div>
+                      <div className="text-xs text-stone-500">{p.unitsSold} sold · {p.marginPct.toFixed(0)}% margin</div>
+                    </div>
                   </div>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <div className="text-sm font-medium text-stone-900">{fmt(p.price * (28 - i * 4))}</div>
-                  <div className="text-xs text-stone-500">{28 - i * 4} sold</div>
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="bg-gradient-to-br from-emerald-900 via-emerald-800 to-stone-900 rounded-2xl p-5 text-white relative overflow-hidden">
@@ -1318,21 +1307,27 @@ const DashboardView = () => {
           <div className="absolute -right-8 -bottom-8 w-32 h-32 rounded-full bg-amber-400/10 blur-2xl" />
           <div className="relative">
             <div className="flex items-center gap-2 mb-3">
-              <Award size={16} className="text-amber-300" />
-              <span className="text-[11px] uppercase tracking-widest text-amber-200/80 font-medium">{t('achievement')}</span>
+              <Wallet size={16} className="text-amber-300" />
+              <span className="text-[11px] uppercase tracking-widest text-amber-200/80 font-medium">This month</span>
             </div>
-            <h3 className="font-serif text-xl leading-tight mb-2" style={{ fontFamily: "'Fraunces', serif", fontWeight: 500 }}>{t('weekly_target')}</h3>
-            <p className="text-sm text-stone-300 mb-4">{t('weekly_target_desc')}</p>
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs"><span className="text-stone-300">{t('progress')}</span><span className="font-medium">112%</span></div>
-              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-amber-400 to-amber-300 rounded-full" style={{ width: '100%' }} />
+            <h3 className="font-serif text-xl leading-tight mb-2" style={{ fontFamily: "'Fraunces', serif", fontWeight: 500 }}>
+              {monthPnl ? fmt(monthPnl.netProfit) : '—'} net profit
+            </h3>
+            <p className="text-sm text-stone-300 mb-4">
+              {monthPnl ? `${fmt(monthPnl.revenue)} revenue − ${fmt(monthPnl.cogs)} COGS − ${fmt(monthPnl.totalExpenses)} expenses` : 'Connect to the backend to see this month’s figures.'}
+            </p>
+            {monthPnl && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs"><span className="text-stone-300">Net margin</span><span className="font-medium">{monthPnl.netMarginPct.toFixed(1)}%</span></div>
+                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${monthPnl.netProfit >= 0 ? 'bg-gradient-to-r from-amber-400 to-amber-300' : 'bg-rose-400'}`} style={{ width: `${Math.min(100, Math.max(4, Math.abs(monthPnl.netMarginPct)))}%` }} />
+                </div>
               </div>
-            </div>
+            )}
             <button onClick={() => {
-                const rows = [['Day', 'Orders', 'Sales (FCFA)']];
-                chartData.forEach(d => rows.push([d.day, d.orders, d.sales]));
-                downloadCsv(`dashboard-${range}-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+                if (!monthPnl) return;
+                const rows = [['Month-to-date P&L', `${monthPnl.from} to ${monthPnl.to}`], [], ['Revenue', monthPnl.revenue], ['COGS', monthPnl.cogs], ['Gross profit', monthPnl.grossProfit], ['Expenses', monthPnl.totalExpenses], ['Net profit', monthPnl.netProfit]];
+                downloadCsv(`dashboard-pnl-${new Date().toISOString().slice(0, 10)}.csv`, rows);
               }} className="mt-5 text-xs flex items-center gap-1 text-amber-300 hover:text-amber-200">
               {t('view_report')} <ChevronRight size={13} />
             </button>
@@ -1632,7 +1627,12 @@ const PurchaseOrdersPanel = () => {
   const POS = online ? (livePOs || []) : (livePOs?.length ? livePOs : PURCHASE_ORDERS);
   const [statusFilter, setStatusFilter] = useState('all');
   const [createOpen, setCreateOpen] = useState(false);
+  const [payTarget, setPayTarget] = useState(null);
+  const [payAmount, setPayAmount] = useState('');
   const filtered = statusFilter === 'all' ? POS : POS.filter(po => po.status === statusFilter);
+  const today = new Date().toISOString().slice(0, 10);
+  const outstandingOf = (po) => po.outstanding ?? (po.total - (po.amountPaid || 0));
+  const isOverdue = (po) => po.dueDate && po.dueDate < today && outstandingOf(po) > 0;
 
   const counts = {
     draft: POS.filter(p => p.status === 'draft').length,
@@ -1642,6 +1642,7 @@ const PurchaseOrdersPanel = () => {
   };
   const totalValue = POS.filter(p => p.status !== 'cancelled').reduce((s, p) => s + p.total, 0);
   const pending = POS.filter(p => ['sent', 'in-transit'].includes(p.status)).reduce((s, p) => s + p.total, 0);
+  const totalPayable = POS.filter(p => p.status !== 'cancelled').reduce((s, p) => s + outstandingOf(p), 0);
 
   // Requires connectivity — see note on ProductForm.save for why status
   // changes aren't queued offline.
@@ -1654,9 +1655,21 @@ const PurchaseOrdersPanel = () => {
       toast(!e.status ? "Can't update while offline — try again once connected" : e.message, 'error');
     }
   };
+  const submitPayment = async () => {
+    const amt = Number(payAmount);
+    if (!amt || amt <= 0) { toast('Enter a payment amount', 'error'); return; }
+    try {
+      const saved = await api.recordPOPayment(payTarget.id, { amount: amt, method: 'cash' });
+      upsertPO(saved);
+      toast(`Payment of ${fmt(amt)} recorded for ${payTarget.id}`);
+      setPayTarget(null); setPayAmount('');
+    } catch (e) {
+      toast(!e.status ? "Can't record a payment while offline — try again once connected" : e.message, 'error');
+    }
+  };
   const exportPOs = () => {
-    const rows = [['PO Number', 'Supplier', 'Date', 'Items', 'Total', 'Status']];
-    filtered.forEach(p => rows.push([p.id, p.supplier, p.date, p.items, p.total, p.status]));
+    const rows = [['PO Number', 'Supplier', 'Date', 'Due date', 'Items', 'Total', 'Paid', 'Outstanding', 'Status']];
+    filtered.forEach(p => rows.push([p.id, p.supplier, p.date, p.dueDate || '', p.items, p.total, p.amountPaid || 0, outstandingOf(p), p.status]));
     downloadCsv(`purchase-orders-${new Date().toISOString().slice(0, 10)}.csv`, rows);
   };
 
@@ -1670,11 +1683,12 @@ const PurchaseOrdersPanel = () => {
 
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
         <KpiCard label="Open POs" value={(counts.draft + counts.sent + counts['in-transit']).toString()} icon={ClipboardList} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label="Pending delivery" value={fmtShort(pending) + ' FCFA'} icon={Truck} accent="bg-amber-50 text-amber-700" />
         <KpiCard label="Received this month" value={counts.received.toString()} icon={CheckCircle2} accent="bg-sky-50 text-sky-700" />
         <KpiCard label="Total YTD" value={fmtShort(totalValue) + ' FCFA'} icon={Wallet} accent="bg-rose-50 text-rose-700" />
+        <KpiCard label="Total payable" value={fmtShort(totalPayable) + ' FCFA'} icon={Banknote} accent="bg-orange-50 text-orange-700" />
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
@@ -1708,6 +1722,7 @@ const PurchaseOrdersPanel = () => {
               <th className="px-3 py-3">{t('order_date')}</th>
               <th className="px-3 py-3">{t('items_label')}</th>
               <th className="px-3 py-3">{t('total_amount')}</th>
+              <th className="px-3 py-3">Outstanding</th>
               <th className="px-3 py-3">{t('status')}</th>
               <th className="px-5 py-3"></th>
             </tr>
@@ -1716,6 +1731,8 @@ const PurchaseOrdersPanel = () => {
             {filtered.map(po => {
               const s = PO_STATUS[po.status];
               const labelKey = { 'in-transit': 'in_transit', draft: 'draft', sent: 'sent', received: 'received', cancelled: 'cancelled' }[po.status];
+              const outstanding = outstandingOf(po);
+              const overdue = isOverdue(po);
               return (
                 <tr key={po.id} className="border-b border-stone-100 hover:bg-stone-50/50">
                   <td className="px-5 py-3 text-sm font-mono font-medium text-stone-900">{po.id}</td>
@@ -1724,13 +1741,25 @@ const PurchaseOrdersPanel = () => {
                   <td className="px-3 py-3 text-sm text-stone-700">{po.items}</td>
                   <td className="px-3 py-3 text-sm font-medium text-stone-900">{fmt(po.total)}</td>
                   <td className="px-3 py-3">
+                    {po.status === 'cancelled' ? (
+                      <span className="text-xs text-stone-400">—</span>
+                    ) : outstanding <= 0 ? (
+                      <span className="text-xs text-emerald-700 font-medium">Paid in full</span>
+                    ) : (
+                      <div className="text-xs">
+                        <span className={`font-medium ${overdue ? 'text-rose-700' : 'text-amber-700'}`}>{fmt(outstanding)}</span>
+                        {po.dueDate && <span className={`block ${overdue ? 'text-rose-500' : 'text-stone-400'}`}>{overdue ? 'Overdue · ' : 'Due '}{po.dueDate}</span>}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
                     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-medium rounded-md ${s.color}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />{t(labelKey)}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="px-5 py-3 text-right whitespace-nowrap">
                     {po.status === 'draft' && (
-                      <button onClick={() => advance(po, 'sent')} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium flex items-center gap-1 ml-auto">
+                      <button onClick={() => advance(po, 'sent')} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium inline-flex items-center gap-1">
                         <Send size={11} /> {t('sent')}
                       </button>
                     )}
@@ -1738,12 +1767,12 @@ const PurchaseOrdersPanel = () => {
                       <button onClick={() => advance(po, 'in-transit')} className="text-xs text-amber-700 hover:text-amber-900 font-medium">{t('in_transit')}</button>
                     )}
                     {po.status === 'in-transit' && (
-                      <button onClick={() => advance(po, 'received')} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium flex items-center gap-1 ml-auto">
+                      <button onClick={() => advance(po, 'received')} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium inline-flex items-center gap-1">
                         <FileCheck size={11} /> {t('received')}
                       </button>
                     )}
-                    {(po.status === 'received' || po.status === 'cancelled') && (
-                      <button onClick={() => toast(`${po.id} · ${po.supplier} · ${fmt(po.total)}`, 'info')} className="text-xs text-stone-500 hover:text-stone-900">View</button>
+                    {po.status !== 'cancelled' && outstanding > 0 && (
+                      <button onClick={() => { setPayTarget(po); setPayAmount(''); }} className="text-xs text-stone-600 hover:text-stone-900 font-medium ml-3">Record payment</button>
                     )}
                   </td>
                 </tr>
@@ -1754,6 +1783,23 @@ const PurchaseOrdersPanel = () => {
         </div>
       </div>
       <POForm open={createOpen} onClose={() => setCreateOpen(false)} />
+
+      <Modal open={!!payTarget} onClose={() => setPayTarget(null)} title={`Record payment — ${payTarget?.id || ''}`}
+        footer={<>
+          <button onClick={() => setPayTarget(null)} className="px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100 rounded-lg">Cancel</button>
+          <button onClick={submitPayment} className="px-4 py-2 bg-emerald-900 text-white rounded-lg text-sm font-medium hover:bg-emerald-800">Record payment</button>
+        </>}>
+        {payTarget && (
+          <>
+            <p className="text-sm text-stone-600 mb-3">
+              {payTarget.supplier} · Outstanding: <span className="font-medium text-stone-900">{fmt(outstandingOf(payTarget))}</span> of {fmt(payTarget.total)}
+            </p>
+            <Field label="Payment amount (FCFA)">
+              <Input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0" />
+            </Field>
+          </>
+        )}
+      </Modal>
     </>
   );
 };
@@ -1985,88 +2031,6 @@ const CustomersView = () => {
   );
 };
 
-// ============ STORES ============
-const StoresView = () => {
-  const { t } = useT();
-  const { online, users: liveUsers } = useData();
-  const users = online ? (liveUsers || []) : (liveUsers?.length ? liveUsers : USERS_DATA);
-  const [report, setReport] = useState(null);
-  useEffect(() => { if (online) api.salesReport().then(setReport).catch(() => {}); }, [online]);
-  // NOTE: there is no real multi-store backend yet (no stores table/API) — the cards and
-  // chart below still render the static STORES demo list. These two totals are derived
-  // from that same list so at least the KPI row and the cards never disagree with each other.
-  const combinedRevenue = STORES.reduce((sum, s) => sum + s.sales, 0);
-  const activeCashiers = users.filter(u => u.role === 'cashier').length;
-  const avgTransaction = report?.totals?.orders ? Math.round(report.totals.revenue / report.totals.orders) : 0;
-  return (
-    <div className="flex-1 overflow-y-auto bg-stone-50/30 p-7">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        <KpiCard label={t('total_stores')} value={String(STORES.length)} icon={Store} accent="bg-emerald-50 text-emerald-700" />
-        <KpiCard label={t('combined_revenue')} value={`${fmtShort(combinedRevenue)} FCFA`} icon={TrendingUp} accent="bg-amber-50 text-amber-700" />
-        <KpiCard label={t('active_cashiers')} value={String(activeCashiers)} icon={UserCircle2} accent="bg-rose-50 text-rose-700" />
-        <KpiCard label={t('avg_transaction')} value={`${fmt(avgTransaction)}`} icon={Receipt} accent="bg-sky-50 text-sky-700" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-        {STORES.map(store => (
-          <div key={store.id} className="bg-white rounded-2xl p-5 border border-stone-200/80 hover:shadow-lg hover:shadow-stone-900/5 transition-all">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center">
-                  <Building2 size={20} className="text-emerald-800" />
-                </div>
-                <div>
-                  <h3 className="font-serif text-lg text-stone-900 leading-tight" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{store.name}</h3>
-                  <div className="flex items-center gap-1 text-xs text-stone-500 mt-1">
-                    <MapPin size={11} /> {store.address}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-medium rounded-md">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> {t('open')}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-stone-100">
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium mb-1">{t('monthly')}</div>
-                <div className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmtShort(store.sales)} FCFA</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium mb-1">{t('growth')}</div>
-                <div className={`flex items-center gap-1 text-sm font-medium ${store.growth >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
-                  {store.growth >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                  {Math.abs(store.growth)}%
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-stone-500 font-medium mb-1">{t('status')}</div>
-                <div className="text-sm font-medium text-emerald-700">{t('healthy')}</div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="bg-white rounded-2xl p-5 border border-stone-200/80">
-        <div className="mb-4">
-          <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{t('store_comparison')}</h3>
-          <p className="text-xs text-stone-500 mt-0.5">{t('monthly_by_location')}</p>
-        </div>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={STORES.map(s => ({ name: s.name.split('—')[1]?.trim() || s.name, sales: s.sales }))}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
-            <XAxis dataKey="name" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
-            <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
-            <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v) => fmt(v)} />
-            <Bar dataKey="sales" fill="#047857" radius={[8, 8, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-};
-
 // ============ REPORTS ============
 const ReportsView = () => {
   const { t } = useT();
@@ -2080,17 +2044,21 @@ const ReportsView = () => {
   const [to, setTo] = useState(today);
   const [range, setRange] = useState(null);
   const [zData, setZData] = useState(null);
+  const [pnl, setPnl] = useState(null);
+  const [pnlTrend, setPnlTrend] = useState([]);
+  const [weeklySales, setWeeklySales] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const methodLabel = (m) => ({ cash: 'Cash', mobile: 'Mobile money', card: 'Card' }[m] || m || '—');
 
-  // Pull the date-range accounting figures from the backend.
+  // Pull the date-range accounting figures (and P&L for the same range) from the backend.
   const runRange = async () => {
     if (!online) { toast('Connect to the backend to run accounting reports', 'error'); return; }
     setLoading(true);
     try {
-      const r = await api.rangeReport(from, to);
+      const [r, p] = await Promise.all([api.rangeReport(from, to), api.pnlReport(from, to)]);
       setRange(r);
+      setPnl(p);
     } catch (e) { toast(e.message, 'error'); }
     finally { setLoading(false); }
   };
@@ -2102,7 +2070,14 @@ const ReportsView = () => {
     catch (e) { toast(e.message, 'error'); }
   };
 
-  useEffect(() => { if (online) { runRange(); runZ(); } }, [online]); // eslint-disable-line
+  useEffect(() => {
+    if (!online) return;
+    runRange(); runZ();
+    api.pnlTrend(6).then(setPnlTrend).catch(() => {});
+    api.salesReport(7).then(r => setWeeklySales((r.daily || []).map(d => ({
+      ...d, label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }),
+    })))).catch(() => {});
+  }, [online]); // eslint-disable-line
 
   // 1) Date-range sales export — every transaction in the period.
   const exportRangeCsv = () => {
@@ -2160,6 +2135,29 @@ const ReportsView = () => {
     ];
     downloadCsv(`z-report-${zData.date}.csv`, rows);
     toast('Z-report downloaded');
+  };
+
+  // 4) Profit & Loss CSV for the selected range — revenue, COGS, gross
+  // profit, expenses by category, and the bottom-line net profit.
+  const exportPnlCsv = () => {
+    if (!pnl) { toast('Run the report first', 'info'); return; }
+    const rows = [
+      ['Profit & Loss', `${pnl.from} to ${pnl.to}`],
+      [],
+      ['Revenue', pnl.revenue],
+      ['Cost of goods sold', -pnl.cogs],
+      ['Gross profit', pnl.grossProfit],
+      ['Gross margin %', pnl.grossMarginPct.toFixed(1)],
+      [],
+      ['Expenses by category'],
+      ...pnl.expensesByCategory.map(e => [e.category || 'Uncategorized', -e.amount]),
+      ['Total expenses', -pnl.totalExpenses],
+      [],
+      ['Net profit', pnl.netProfit],
+      ['Net margin %', pnl.netMarginPct.toFixed(1)],
+    ];
+    downloadCsv(`profit-loss-${from}_to_${to}.csv`, rows);
+    toast('P&L exported');
   };
 
   const genSalesReport = exportRangeCsv;
@@ -2245,6 +2243,98 @@ const ReportsView = () => {
         )}
       </div>
 
+      {/* ---- Profit & Loss: revenue minus COGS minus expenses, for the same range ---- */}
+      {pnl && (
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Profit &amp; Loss</h3>
+              <p className="text-xs text-stone-500 mt-0.5">{pnl.from} to {pnl.to}</p>
+            </div>
+            <button onClick={exportPnlCsv} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-stone-200 rounded-lg hover:bg-stone-50">
+              <Download size={14} /> P&amp;L export (CSV)
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="bg-stone-50 rounded-xl p-3">
+              <div className="text-[11px] text-stone-500">Revenue</div>
+              <div className="text-lg font-semibold text-stone-900">{fmt(pnl.revenue)}</div>
+            </div>
+            <div className="bg-stone-50 rounded-xl p-3">
+              <div className="text-[11px] text-stone-500">Cost of goods sold</div>
+              <div className="text-lg font-semibold text-stone-900">−{fmt(pnl.cogs)}</div>
+            </div>
+            <div className="bg-stone-50 rounded-xl p-3">
+              <div className="text-[11px] text-stone-500">Gross profit</div>
+              <div className="text-lg font-semibold text-stone-900">{fmt(pnl.grossProfit)}</div>
+              <div className="text-[10px] text-stone-500">{pnl.grossMarginPct.toFixed(1)}% margin</div>
+            </div>
+            <div className={`rounded-xl p-3 ${pnl.netProfit >= 0 ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+              <div className={`text-[11px] ${pnl.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>Net profit</div>
+              <div className={`text-lg font-semibold ${pnl.netProfit >= 0 ? 'text-emerald-900' : 'text-rose-900'}`}>{fmt(pnl.netProfit)}</div>
+              <div className={`text-[10px] ${pnl.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{pnl.netMarginPct.toFixed(1)}% margin · expenses {fmt(pnl.totalExpenses)}</div>
+            </div>
+          </div>
+          {pnl.expensesByCategory.length > 0 && (
+            <div className="pt-4 border-t border-stone-100">
+              <div className="text-xs text-stone-500 mb-2">Expenses by category</div>
+              <div className="flex flex-wrap gap-2">
+                {pnl.expensesByCategory.map(e => (
+                  <span key={e.category} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">
+                    {e.category || 'Uncategorized'}: <span className="font-medium">{fmt(e.amount)}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ---- Monthly P&L trend — the actual "month over month" view an owner thinks in ---- */}
+      {pnlTrend.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
+          <div className="mb-4">
+            <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Monthly P&amp;L trend</h3>
+            <p className="text-xs text-stone-500 mt-0.5">Last {pnlTrend.length} months</p>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={pnlTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
+              <XAxis dataKey="month" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
+              <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
+              <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v) => fmt(v)} />
+              <Bar dataKey="netProfit" name="Net profit" fill="#047857" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="overflow-x-auto mt-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+                  <th className="py-2 pr-3">Month</th>
+                  <th className="py-2 pr-3">Revenue</th>
+                  <th className="py-2 pr-3">COGS</th>
+                  <th className="py-2 pr-3">Gross profit</th>
+                  <th className="py-2 pr-3">Expenses</th>
+                  <th className="py-2 pr-3">Net profit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pnlTrend.map(m => (
+                  <tr key={m.month} className="border-b border-stone-100 last:border-0">
+                    <td className="py-2 pr-3 font-medium text-stone-900">{m.month}</td>
+                    <td className="py-2 pr-3 text-stone-700">{fmt(m.revenue)}</td>
+                    <td className="py-2 pr-3 text-stone-700">{fmt(m.cogs)}</td>
+                    <td className="py-2 pr-3 text-stone-700">{fmt(m.grossProfit)}</td>
+                    <td className="py-2 pr-3 text-stone-700">{fmt(m.expenses)}</td>
+                    <td className={`py-2 pr-3 font-medium ${m.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmt(m.netProfit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ---- Daily Z-report (close-out) ---- */}
       <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
         <div className="flex items-center justify-between mb-4">
@@ -2301,16 +2391,20 @@ const ReportsView = () => {
             <Download size={14} /> {t('export_pdf')}
           </button>
         </div>
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={SALES_CHART}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
-            <XAxis dataKey="day" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
-            <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
-            <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v, n) => n === 'sales' ? fmt(v) : v} />
-            <Line type="monotone" dataKey="sales" stroke="#047857" strokeWidth={2.5} dot={{ r: 4, fill: '#047857' }} />
-            <Line type="monotone" dataKey="orders" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b' }} />
-          </LineChart>
-        </ResponsiveContainer>
+        {weeklySales.length === 0 ? (
+          <div className="h-[280px] flex items-center justify-center text-sm text-stone-400">No sales recorded yet.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={weeklySales}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f4" />
+              <XAxis dataKey="label" stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} />
+              <YAxis stroke="#a8a29e" fontSize={11} axisLine={false} tickLine={false} tickFormatter={fmtShort} />
+              <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} formatter={(v, n) => n === 'sales' ? fmt(v) : v} />
+              <Line type="monotone" dataKey="sales" stroke="#047857" strokeWidth={2.5} dot={{ r: 4, fill: '#047857' }} />
+              <Line type="monotone" dataKey="orders" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b' }} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <div className="bg-gradient-to-br from-stone-50 to-emerald-50/40 rounded-2xl p-5 border border-stone-200/80">
@@ -2402,10 +2496,6 @@ const SettingsView = () => {
     acceptCash: true,
     acceptCard: true,
     acceptMobile: true,
-    barcodeScanner: true,
-    receiptPrinter: true,
-    cashDrawer: true,
-    customerDisplay: false,
     lowStockThreshold: '10',
     dailySummary: true,
     weeklySummary: true,
@@ -2498,7 +2588,6 @@ const SettingsView = () => {
     { id: 'receipt', label: t('s_receipt'), icon: Receipt },
     { id: 'tax', label: t('s_tax'), icon: Percent },
     { id: 'payments', label: t('s_payments'), icon: CreditCard },
-    { id: 'hardware', label: t('s_hardware'), icon: Monitor },
     { id: 'users', label: t('s_users'), icon: Users },
     { id: 'notifications', label: t('s_notifications'), icon: BellRing },
     { id: 'data', label: 'Data', icon: Trash2 },
@@ -2642,35 +2731,6 @@ const SettingsView = () => {
               </SettingsField>
               <SettingsField label={t('accept_mobile')} hint="MTN MoMo, Orange Money">
                 <Toggle checked={settings.acceptMobile} onChange={update('acceptMobile')} />
-              </SettingsField>
-            </SettingsCard>
-          )}
-
-          {tab === 'hardware' && (
-            <SettingsCard title={t('s_hardware')} desc="Connected devices at this station">
-              <SettingsField label={t('barcode_scanner')} hint="Honeywell Voyager 1450g">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-emerald-700 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Connected</span>
-                  <Toggle checked={settings.barcodeScanner} onChange={update('barcodeScanner')} />
-                </div>
-              </SettingsField>
-              <SettingsField label={t('receipt_printer')} hint="Epson TM-T20III · 80mm">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-emerald-700 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Connected</span>
-                  <Toggle checked={settings.receiptPrinter} onChange={update('receiptPrinter')} />
-                </div>
-              </SettingsField>
-              <SettingsField label={t('cash_drawer')} hint="Opens automatically on cash sales">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-emerald-700 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Connected</span>
-                  <Toggle checked={settings.cashDrawer} onChange={update('cashDrawer')} />
-                </div>
-              </SettingsField>
-              <SettingsField label={t('customer_display')} hint="Secondary screen facing the customer">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-stone-500 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-stone-300 rounded-full" /> Not detected</span>
-                  <Toggle checked={settings.customerDisplay} onChange={update('customerDisplay')} />
-                </div>
               </SettingsField>
             </SettingsCard>
           )}
@@ -2820,9 +2880,18 @@ const SettingsView = () => {
 const ShiftsView = () => {
   const { t } = useT();
   const { user } = useAuth();
+  const { toast } = useToast();
   const { shifts, activeShifts, myShift, clockIn, clockOut } = useShifts();
+  const [clockOutModal, setClockOutModal] = useState(false);
+  const [countedCash, setCountedCash] = useState('');
 
   const isManager = user?.role === 'manager' || user?.role === 'admin';
+
+  const submitClockOut = async () => {
+    await clockOut(countedCash === '' ? undefined : Number(countedCash));
+    setClockOutModal(false);
+    setCountedCash('');
+  };
 
   const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
@@ -2844,7 +2913,7 @@ const ShiftsView = () => {
   const visibleShifts = isManager ? shifts : shifts.filter(s => String(s.employeeId) === String(user?.id));
 
   const exportTimesheet = () => {
-    const rows = [['Employee', 'Role', 'Date', 'Clock in', 'Clock out', 'Hours', 'Status']];
+    const rows = [['Employee', 'Role', 'Date', 'Clock in', 'Clock out', 'Hours', 'Expected cash', 'Counted cash', 'Variance', 'Status']];
     visibleShifts.forEach(s => {
       rows.push([
         s.name, s.role,
@@ -2852,6 +2921,7 @@ const ShiftsView = () => {
         new Date(s.clockIn).toISOString(),
         s.clockOut ? new Date(s.clockOut).toISOString() : '',
         hoursFor(s.clockIn, s.clockOut).toFixed(2),
+        s.expectedCash ?? '', s.countedCash ?? '', s.cashVariance ?? '',
         s.clockOut ? 'Completed' : 'Active',
       ]);
     });
@@ -2879,7 +2949,7 @@ const ShiftsView = () => {
             )}
           </div>
           {myShift ? (
-            <button onClick={clockOut} className="px-5 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-2">
+            <button onClick={() => setClockOutModal(true)} className="px-5 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-2">
               <ArrowUpLeft size={16} /> Clock out
             </button>
           ) : (
@@ -2934,12 +3004,13 @@ const ShiftsView = () => {
               <th className="text-left font-medium px-5 py-3">Clock in</th>
               <th className="text-left font-medium px-5 py-3">Clock out</th>
               <th className="text-left font-medium px-5 py-3">Duration</th>
+              <th className="text-left font-medium px-5 py-3">Cash reconciliation</th>
               <th className="text-left font-medium px-5 py-3">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
             {visibleShifts.length === 0 ? (
-              <tr><td colSpan={isManager ? 6 : 5} className="px-5 py-8 text-center text-stone-400">No shifts recorded yet.</td></tr>
+              <tr><td colSpan={isManager ? 7 : 6} className="px-5 py-8 text-center text-stone-400">No shifts recorded yet.</td></tr>
             ) : visibleShifts.map(s => (
               <tr key={s.id}>
                 {isManager && (
@@ -2953,6 +3024,22 @@ const ShiftsView = () => {
                 <td className="px-5 py-3 text-stone-600">{fmtTime(s.clockOut)}</td>
                 <td className="px-5 py-3 text-stone-600">{duration(s.clockIn, s.clockOut)}</td>
                 <td className="px-5 py-3">
+                  {!s.clockOut ? (
+                    <span className="text-xs text-stone-400">—</span>
+                  ) : s.countedCash == null ? (
+                    <span className="text-xs text-stone-400">Not counted</span>
+                  ) : (
+                    <div className="text-xs">
+                      <div className="text-stone-500">Exp. {fmt(s.expectedCash || 0)} · Counted {fmt(s.countedCash)}</div>
+                      <div className={`font-medium ${
+                        s.cashVariance === 0 ? 'text-emerald-700' : Math.abs(s.cashVariance) <= 500 ? 'text-amber-700' : 'text-rose-700'
+                      }`}>
+                        {s.cashVariance === 0 ? 'Balanced' : s.cashVariance > 0 ? `Over by ${fmt(s.cashVariance)}` : `Short by ${fmt(Math.abs(s.cashVariance))}`}
+                      </div>
+                    </div>
+                  )}
+                </td>
+                <td className="px-5 py-3">
                   {s.clockOut
                     ? <span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-600">Completed</span>
                     : <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800">Active</span>}
@@ -2963,6 +3050,20 @@ const ShiftsView = () => {
         </table>
         </div>
       </div>
+
+      <Modal open={clockOutModal} onClose={() => setClockOutModal(false)} title="Clock out — count the drawer"
+        footer={<>
+          <button onClick={() => { setClockOutModal(false); setCountedCash(''); }} className="px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100 rounded-lg">Cancel</button>
+          <button onClick={submitClockOut} className="px-4 py-2 bg-rose-600 text-white rounded-lg text-sm font-medium hover:bg-rose-700">Clock out</button>
+        </>}>
+        <p className="text-sm text-stone-600 mb-3">
+          Count the cash currently in the drawer and enter it below. This is compared against your cash sales
+          this shift to flag any over/short — leave blank to skip reconciliation.
+        </p>
+        <Field label="Counted cash (FCFA)">
+          <Input type="number" value={countedCash} onChange={(e) => setCountedCash(e.target.value)} placeholder="0" />
+        </Field>
+      </Modal>
     </div>
   );
 };
@@ -2976,7 +3077,6 @@ export default function DialloPOS() {
     dashboard: { title: t('dashboard'), sub: t('sub_dash') },
     inventory: { title: t('inventory'), sub: t('sub_inv') },
     customers: { title: t('customers'), sub: t('sub_cust') },
-    stores: { title: t('stores'), sub: t('sub_stores') },
     reports: { title: t('reports'), sub: t('sub_reports') },
     expenses: { title: t('expenses') || 'Expenses', sub: 'Record and review business expenses' },
     settings: { title: t('settings'), sub: t('sub_settings') },
@@ -3160,7 +3260,7 @@ function DialloPOSShell({ titles }) {
   const { online, products: liveProducts, customers: liveCustomers } = useData();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customers = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
-  const firstView = (c) => ['pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'stores', 'shifts'].find(k => c[k]) || 'shifts';
+  const firstView = (c) => ['pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'shifts'].find(k => c[k]) || 'shifts';
   const [view, setView] = useState(() => firstView(can));
   const [mobileNav, setMobileNav] = useState(false);
   // If the current role loses access to the active view, fall back to its first allowed view.
@@ -3180,7 +3280,6 @@ function DialloPOSShell({ titles }) {
     customers: lang === 'fr'
       ? `${customers.length} clients · ${loyaltyCount} membres fidélité`
       : `${customers.length} customers · ${loyaltyCount} loyalty members`,
-    stores: lang === 'fr' ? `${STORES.length} emplacements actifs` : `${STORES.length} active locations`,
   };
   const subtitleFor = (v) => dynamicSub[v] ?? titles[v].sub;
 
@@ -3205,7 +3304,6 @@ function DialloPOSShell({ titles }) {
         {view === 'dashboard' && guarded('dashboard', 'Dashboard & Financials', DashboardView)}
         {view === 'inventory' && guarded('inventory', 'Inventory', InventoryView)}
         {view === 'customers' && guarded('customers', 'Customers', CustomersView)}
-        {view === 'stores' && guarded('stores', 'Stores', StoresView)}
         {view === 'reports' && guarded('reports', 'Reports', ReportsView)}
         {view === 'expenses' && guarded('expenses', 'Expenses', ExpensesView)}
         {view === 'settings' && guarded('settings', 'Settings & Users', SettingsView)}
