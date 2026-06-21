@@ -28,16 +28,15 @@ const h = (fn) => (req, res) => {
   } catch (e) { onError(e); }
 };
 
-// Clock-in is meant to happen at the POS terminal/tablet, not on a cashier's
-// personal phone. Tablets (iPad, Android tablets without the "Mobile" token)
-// are still allowed — only phone-class user agents are rejected. This mirrors
-// the same check the frontend makes before it even calls this endpoint; it's
-// not airtight (a UA header can be spoofed) but it backs that check up rather
+// Clock-in is meant to happen at the fixed POS terminal, not on a handheld
+// device — phones AND tablets are both rejected. This mirrors the same
+// check the frontend makes before it even calls this endpoint; it's not
+// airtight (a UA header can be spoofed) but it backs that check up rather
 // than trusting the client alone.
-const isPhoneUA = (ua = '') => {
-  if (/iPad/i.test(ua)) return false;
+const isHandheldUA = (ua = '') => {
+  if (/iPad/i.test(ua)) return true;
   if (/iPhone|iPod/i.test(ua)) return true;
-  if (/Android/i.test(ua)) return /Mobile/i.test(ua);
+  if (/Android/i.test(ua)) return true;
   if (/Windows Phone/i.test(ua)) return true;
   return false;
 };
@@ -319,11 +318,11 @@ function performClockIn(u) {
 }
 
 // ---- Fingerprint/biometric credentials (WebAuthn) ----
-// Phones are blocked at every step here, not just at clock-in itself —
-// otherwise a cashier could register their personal phone's fingerprint
-// once and then clock in from it forever, defeating the point.
+// Phones and tablets are blocked at every step here, not just at clock-in
+// itself — otherwise a cashier could register their personal device's
+// fingerprint once and then clock in from it forever, defeating the point.
 const requirePOSDevice = (req) => {
-  if (isPhoneUA(req.headers['user-agent'])) throw new Error('Use the POS terminal or a tablet, not a phone');
+  if (isHandheldUA(req.headers['user-agent'])) throw new Error('Use the POS terminal for this — not a phone or tablet');
 };
 
 r.get('/webauthn/credentials', requireAuth, h((req, res) => {
