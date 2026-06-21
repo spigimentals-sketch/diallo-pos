@@ -4,7 +4,11 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
 import { db } from '../db.js';
-import { hashPin, verifyPin, issueToken, requireAuth, requireRole } from '../auth.js';
+import { hashPin, verifyPin, issueToken, requireAuth, requireRole, verifyToken } from '../auth.js';
+import {
+  getRegistrationOptions, verifyRegistration, getClockInOptions, verifyClockIn,
+  publicCredentialList, removeCredential,
+} from '../webauthn.js';
 
 const r = Router();
 
@@ -13,10 +17,29 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-// Small helper to wrap handlers and forward errors.
+// Small helper to wrap handlers and forward errors — sync throws and
+// rejected promises both land in the same place (the webauthn routes are
+// async, everything else here is sync).
 const h = (fn) => (req, res) => {
-  try { fn(req, res); }
-  catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+  const onError = (e) => { console.error(e); res.status(400).json({ error: e.message }); };
+  try {
+    const result = fn(req, res);
+    if (result && typeof result.catch === 'function') result.catch(onError);
+  } catch (e) { onError(e); }
+};
+
+// Clock-in is meant to happen at the POS terminal/tablet, not on a cashier's
+// personal phone. Tablets (iPad, Android tablets without the "Mobile" token)
+// are still allowed — only phone-class user agents are rejected. This mirrors
+// the same check the frontend makes before it even calls this endpoint; it's
+// not airtight (a UA header can be spoofed) but it backs that check up rather
+// than trusting the client alone.
+const isPhoneUA = (ua = '') => {
+  if (/iPad/i.test(ua)) return false;
+  if (/iPhone|iPod/i.test(ua)) return true;
+  if (/Android/i.test(ua)) return /Mobile/i.test(ua);
+  if (/Windows Phone/i.test(ua)) return true;
+  return false;
 };
 
 // A user counts as "online" if they've logged in or sent a heartbeat in the
@@ -264,17 +287,84 @@ r.delete('/users/:id', requireAuth, requireRole('admin'), h((req, res) => {
 // Shifts are keyed to the logged-in user account (employeeId = user id), so each
 // person can only clock themselves in or out. Managers/admins read the full list.
 r.get('/employees', h((req, res) => res.json(db.prepare('SELECT * FROM employees ORDER BY id').all())));
-r.get('/shifts', h((req, res) => res.json(db.prepare('SELECT * FROM shifts ORDER BY clockIn DESC').all())));
+// Cashiers can see shift times but not the cash reconciliation outcome —
+// whether their drawer was balanced is management/accounting's call to
+// review, not something to surface back to the person who counted it.
+// Stripped here, not just hidden in the UI, since the raw response is one
+// devtools click away otherwise. This route stays public like its sibling
+// reads (/products, /customers, /settings, ...) so the app's very first
+// load — before anyone's logged in and there's no token yet to read a role
+// from — doesn't fail; the front-end re-pulls this once a session exists,
+// at which point the token here lets us actually tell who's asking.
+r.get('/shifts', h((req, res) => {
+  const shifts = db.prepare('SELECT * FROM shifts ORDER BY clockIn DESC').all();
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const payload = verifyToken(token);
+  const canSeeCash = payload && ['admin', 'manager', 'accountant'].includes(payload.role);
+  if (canSeeCash) return res.json(shifts);
+  res.json(shifts.map(({ expectedCash, countedCash, cashVariance, ...rest }) => rest));
+}));
 
-// Clock IN — always the authenticated user.
-r.post('/shifts/clock-in', requireAuth, h((req, res) => {
-  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
-  if (!u) throw new Error('account not found');
+// Clock-in is no longer a plain "create a shift row" call — it only happens
+// as the last step of a verified WebAuthn (fingerprint/biometric) ceremony
+// below, so a sale can never be attributed to a shift nobody's own device
+// actually confirmed. This helper is that last step, shared by nothing else.
+function performClockIn(u) {
   const open = db.prepare('SELECT * FROM shifts WHERE employeeId=? AND clockOut IS NULL').get(u.id);
   if (open) throw new Error('You are already clocked in');
   const info = db.prepare('INSERT INTO shifts (employeeId,name,role,clockIn,clockOut) VALUES (?,?,?,?,NULL)')
     .run(u.id, u.name, u.role, new Date().toISOString());
-  res.status(201).json(db.prepare('SELECT * FROM shifts WHERE id=?').get(info.lastInsertRowid));
+  return db.prepare('SELECT * FROM shifts WHERE id=?').get(info.lastInsertRowid);
+}
+
+// ---- Fingerprint/biometric credentials (WebAuthn) ----
+// Phones are blocked at every step here, not just at clock-in itself —
+// otherwise a cashier could register their personal phone's fingerprint
+// once and then clock in from it forever, defeating the point.
+const requirePOSDevice = (req) => {
+  if (isPhoneUA(req.headers['user-agent'])) throw new Error('Use the POS terminal or a tablet, not a phone');
+};
+
+r.get('/webauthn/credentials', requireAuth, h((req, res) => {
+  res.json(publicCredentialList(req.user.id));
+}));
+
+r.delete('/webauthn/credentials/:id', requireAuth, h((req, res) => {
+  removeCredential(req.user.id, req.params.id);
+  res.json({ ok: true });
+}));
+
+r.get('/webauthn/register-options', requireAuth, h(async (req, res) => {
+  requirePOSDevice(req);
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!u) throw new Error('account not found');
+  res.json(await getRegistrationOptions(u));
+}));
+
+r.post('/webauthn/register-verify', requireAuth, h(async (req, res) => {
+  requirePOSDevice(req);
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!u) throw new Error('account not found');
+  const credential = await verifyRegistration(u, req.body);
+  res.status(201).json(credential);
+}));
+
+// Clock IN — always the authenticated user, and only once the fingerprint
+// challenge below has actually been verified.
+r.get('/webauthn/clockin-options', requireAuth, h(async (req, res) => {
+  requirePOSDevice(req);
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!u) throw new Error('account not found');
+  res.json(await getClockInOptions(u));
+}));
+
+r.post('/webauthn/clockin-verify', requireAuth, h(async (req, res) => {
+  requirePOSDevice(req);
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!u) throw new Error('account not found');
+  await verifyClockIn(u, req.body);
+  res.status(201).json(performClockIn(u));
 }));
 
 // Clock OUT — always the authenticated user. Reconciles the cash drawer:
@@ -299,7 +389,15 @@ r.post('/shifts/clock-out', requireAuth, h((req, res) => {
 
   db.prepare('UPDATE shifts SET clockOut=?, expectedCash=?, countedCash=?, cashVariance=? WHERE id=?')
     .run(clockOutAt, expectedCash, counted, cashVariance, open.id);
-  res.json(db.prepare('SELECT * FROM shifts WHERE id=?').get(open.id));
+  const updated = db.prepare('SELECT * FROM shifts WHERE id=?').get(open.id);
+  // Clock-out is always self-service, so the requester here is whoever just
+  // clocked out — don't hand a cashier their own variance in the response
+  // even though the UI doesn't render it; the JSON itself shouldn't carry it.
+  if (!['admin', 'manager', 'accountant'].includes(req.user.role)) {
+    const { expectedCash, countedCash, cashVariance, ...rest } = updated;
+    return res.json(rest);
+  }
+  res.json(updated);
 }));
 
 // ---------------- ORDERS / CHECKOUT (the heart of the POS) ----------------
@@ -419,9 +517,10 @@ r.delete('/expenses/:id', requireAuth, requireRole('admin', 'manager', 'accounta
 
 // Admin only: wipe all demo/operational data so the shop starts from scratch.
 // Clears inventory, sales, stock movements, purchase orders, customers,
-// suppliers, expenses, shifts and employees. Every other login account is
-// deleted too — only the admin account used to run the reset survives.
-// Settings (business profile) are left untouched.
+// suppliers, expenses, shifts and employees. User accounts (logins/PINs/
+// roles) are left untouched — staff shouldn't have to be recreated just
+// because the shop's records were reset. Settings (business profile) are
+// left untouched too.
 r.post('/maintenance/clear-data', requireAuth, requireRole('admin'), h((req, res) => {
   const tx = db.transaction(() => {
     for (const tbl of [
@@ -430,7 +529,6 @@ r.post('/maintenance/clear-data', requireAuth, requireRole('admin'), h((req, res
     ]) {
       db.prepare(`DELETE FROM ${tbl}`).run();
     }
-    db.prepare('DELETE FROM users WHERE id != ?').run(req.user.id);
   });
   tx();
   res.json({ ok: true });
@@ -492,7 +590,9 @@ r.get('/reports/inventory', h((req, res) => {
   const products = db.prepare('SELECT name,sku,category,price,cost,stock FROM products ORDER BY stock ASC').all();
   const value = products.reduce((s, p) => s + p.price * p.stock, 0);
   const costValue = products.reduce((s, p) => s + (p.cost || 0) * p.stock, 0);
-  const low = products.filter(p => p.stock < 10).length;
+  const settingsRow = db.prepare('SELECT json FROM settings WHERE id=1').get();
+  const threshold = Number(settingsRow ? JSON.parse(settingsRow.json).lowStockThreshold : null) || 10;
+  const low = products.filter(p => p.stock < threshold).length;
   res.json({ products, stockValue: value, stockCostValue: costValue, lowStock: low, totalSkus: products.length });
 }));
 

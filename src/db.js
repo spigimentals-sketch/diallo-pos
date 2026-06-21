@@ -291,4 +291,21 @@ CREATE TABLE IF NOT EXISTS po_payments (
 );
 `);
 
+// Registered fingerprint/biometric credentials (WebAuthn), used to verify
+// clock-in really was performed by that person's own enrolled device sensor.
+// publicKey/transports are stored as base64url/JSON text since SQLite here
+// has no native binary-friendly column type round-trip in this wrapper.
+db.exec(`
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId       INTEGER NOT NULL,
+  credentialId TEXT UNIQUE NOT NULL,
+  publicKey    TEXT NOT NULL,
+  counter      INTEGER NOT NULL DEFAULT 0,
+  transports   TEXT,
+  deviceLabel  TEXT,
+  createdAt    TEXT
+);
+`);
+
 export default db;
