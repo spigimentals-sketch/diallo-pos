@@ -45,16 +45,17 @@ const TRANSLATIONS = {
     cosmetics: 'Cosmetics', wines: 'Wines', whiskey: 'Whiskey',
     school_materials: 'School materials', perfumes: 'Perfumes', icecream: 'Ice cream',
     shawarma: 'Shawarma',
-    customer: 'Customer', add_customer: 'Add customer',
+    customer: 'Customer', add_customer: 'Add customer', add: 'Add',
+    walk_in_customer: 'Walk-In Customer', no_loyalty_account: 'No loyalty account',
     order: 'Order', items: 'items', clear: 'Clear',
     cart_empty: 'Cart is empty', tap_to_add: 'Tap products to add',
     subtotal: 'Subtotal', total: 'Total',
     earns: 'Earns', pts: 'pts',
     cash: 'Cash', card: 'Card', mobile: 'Mobile',
     complete_payment: 'Complete Payment', payment_received: 'Payment received',
-    total_paid: 'Total paid', method: 'Method', points_earned: 'Points earned',
+    total_paid: 'Total paid', method: 'Method',
     print: 'Print', new_order: 'New order', view_receipt: 'View receipt',
-    in_stock: 'in stock', low: 'Low',
+    in_stock: 'in stock', low: 'Low', out_of_stock: 'Out of stock',
     // KPIs / Dashboard
     todays_sales: "Today's Sales", orders: 'Orders',
     low_stock_items: 'Low stock items',
@@ -84,7 +85,7 @@ const TRANSLATIONS = {
     // Customers
     total_customers: 'Total Customers', loyalty_members: 'Loyalty Members',
     avg_visit: 'Avg. Visit Value', retention: 'Retention',
-    tier: 'Tier', points: 'Points', visits: 'Visits',
+    tier: 'Tier', visits: 'Visits',
     lifetime_value: 'Lifetime Value', view_all: 'View all',
     recent_customers: 'Recent customers', top_spenders: 'Top spenders this month',
     // Reports
@@ -105,7 +106,7 @@ const TRANSLATIONS = {
     rccm: 'RCCM number', niu: 'NIU (Tax ID)',
     receipt_header: 'Receipt header', receipt_footer: 'Receipt footer',
     paper_width: 'Paper width', show_logo: 'Show logo on receipt',
-    show_qr: 'Show QR code', show_loyalty: 'Show loyalty points',
+    show_qr: 'Show QR code',
     tva_rate: 'TVA rate', tva_included: 'Prices include TVA',
     tax_id_print: 'Print tax ID on receipts',
     accept_cash: 'Accept cash', accept_card: 'Accept cards',
@@ -142,16 +143,17 @@ const TRANSLATIONS = {
     cosmetics: 'Cosmétiques', wines: 'Vins', whiskey: 'Whisky',
     school_materials: 'Fournitures scolaires', perfumes: 'Parfums', icecream: 'Glaces',
     shawarma: 'Shawarma',
-    customer: 'Client', add_customer: 'Ajouter client',
+    customer: 'Client', add_customer: 'Ajouter client', add: 'Ajouter',
+    walk_in_customer: 'Client de passage', no_loyalty_account: 'Pas de compte fidélité',
     order: 'Commande', items: 'articles', clear: 'Vider',
     cart_empty: 'Panier vide', tap_to_add: 'Touchez un produit pour l\'ajouter',
     subtotal: 'Sous-total', total: 'Total',
     earns: 'Gagne', pts: 'pts',
     cash: 'Espèces', card: 'Carte', mobile: 'Mobile',
     complete_payment: 'Valider le paiement', payment_received: 'Paiement reçu',
-    total_paid: 'Total payé', method: 'Mode', points_earned: 'Points gagnés',
+    total_paid: 'Total payé', method: 'Mode',
     print: 'Imprimer', new_order: 'Nouvelle commande', view_receipt: 'Voir le reçu',
-    in_stock: 'en stock', low: 'Bas',
+    in_stock: 'en stock', low: 'Bas', out_of_stock: 'Épuisé',
     todays_sales: "Ventes du jour", orders: 'Commandes',
     low_stock_items: 'Stock bas',
     by_category: 'Par catégorie', share_of_sales: 'Part des ventes',
@@ -175,7 +177,7 @@ const TRANSLATIONS = {
     date_time: 'Date & heure', user: 'Utilisateur',
     total_customers: 'Total Clients', loyalty_members: 'Membres Fidélité',
     avg_visit: 'Panier moyen', retention: 'Fidélisation',
-    tier: 'Niveau', points: 'Points', visits: 'Visites',
+    tier: 'Niveau', visits: 'Visites',
     lifetime_value: 'Valeur à vie', view_all: 'Tout voir',
     recent_customers: 'Clients récents', top_spenders: 'Plus gros acheteurs ce mois',
     sales_report: 'Rapport de ventes', sales_report_desc: 'Décomposition quotidienne, hebdomadaire et mensuelle',
@@ -194,7 +196,7 @@ const TRANSLATIONS = {
     rccm: 'Numéro RCCM', niu: 'NIU (Identifiant fiscal)',
     receipt_header: 'En-tête du reçu', receipt_footer: 'Pied du reçu',
     paper_width: 'Largeur du papier', show_logo: 'Afficher le logo',
-    show_qr: 'Afficher le QR code', show_loyalty: 'Afficher les points',
+    show_qr: 'Afficher le QR code',
     tva_rate: 'Taux de TVA', tva_included: 'Prix TTC',
     tax_id_print: 'Imprimer NIU sur les reçus',
     accept_cash: 'Accepter espèces', accept_card: 'Accepter cartes',
@@ -621,7 +623,7 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   const { activeCashier } = useShifts();
   const { toast } = useToast();
   if (!open) return null;
-  const { items = [], subtotal = 0, discount = 0, tva = 0, total = 0, customer, method = 'cash', earnedPoints = 0, invoiceNo = '' } = data || {};
+  const { items = [], subtotal = 0, tva = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
   const paid = total;
   const change = 0;
   const productName = (p) => lang === 'fr' ? (PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
@@ -678,12 +680,8 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
                 <div className="text-right">{activeCashier ? activeCashier.name : '—'}</div>
                 <div className="text-stone-500">{t('station_label')}:</div>
                 <div className="text-right">POS-03</div>
-                {customer && (
-                  <>
-                    <div className="text-stone-500">{t('customer')}:</div>
-                    <div className="text-right">{customer.name}</div>
-                  </>
-                )}
+                <div className="text-stone-500">{t('customer')}:</div>
+                <div className="text-right">{customer?.name || t('walk_in_customer')}</div>
               </div>
 
               <div className="border-t border-dashed border-stone-300 my-2" />
@@ -730,25 +728,6 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
                 <div className="flex justify-between"><span>{t('change')}:</span><span>{fmt(change)}</span></div>
               </div>
 
-              {customer && earnedPoints > 0 && (
-                <>
-                  <div className="border-t border-dashed border-stone-300 my-2" />
-                  <div className="bg-amber-50 -mx-2 px-2 py-1.5 rounded">
-                    <div className="flex items-center gap-1 text-[10px] text-amber-900 mb-0.5">
-                      <Star size={9} className="fill-amber-500 text-amber-500" />
-                      <span className="font-bold uppercase tracking-wider">{t('loyalty_members')}</span>
-                    </div>
-                    <div className="flex justify-between text-[10px]">
-                      <span>{customer.name}</span>
-                      <span className="font-medium">+{earnedPoints} {t('pts')}</span>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-stone-600">
-                      <span>{t('total')} {t('points')}:</span>
-                      <span>{(customer.points + earnedPoints).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </>
-              )}
 
               <div className="border-t border-dashed border-stone-300 my-3" />
 
@@ -845,8 +824,10 @@ const POSView = () => {
   const [showScan, setShowScan] = useState(false);
   const [lastInvoice, setLastInvoice] = useState('');
 
-  // Default the selected customer to the first loyalty member once data loads.
-  useEffect(() => { if (!customer && customerList.length) setCustomer(customerList[0]); }, [customerList]); // eslint-disable-line
+  // No customer is selected by default — this is a supermarket counter, not
+  // a loyalty-program checkout, and there's no time to register someone for
+  // every sale. Checkout works fine with nobody attached; "Walk-In Customer"
+  // is just a display label for that, not a real customer record.
 
   const productName = (p) => lang === 'fr' ? (p.name_fr || PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
 
@@ -855,14 +836,30 @@ const POSView = () => {
     (productName(p).toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()))
   ), [activeCat, search, lang, products]);
 
+  // Never let the cart hold more units of a product than are actually on
+  // the shelf — a sale that outruns stock just creates a refund/argument
+  // later. Both the add button and the +/- stepper are capped here; the
+  // backend re-checks the same thing at checkout in case stock changed
+  // (another terminal sold it) since this cart was built.
   const addToCart = (product) => {
+    if (product.stock <= 0) { toast(`${productName(product)} is out of stock`, 'error'); return false; }
+    let added = true;
     setCart(prev => {
       const ex = prev.find(i => i.id === product.id);
-      if (ex) return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i);
+      if (ex) {
+        if (ex.qty >= product.stock) { added = false; return prev; }
+        return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i);
+      }
       return [...prev, { ...product, qty: 1 }];
     });
+    if (!added) toast(`Only ${product.stock} ${productName(product)} in stock`, 'error');
+    return added;
   };
-  const updateQty = (id, delta) => setCart(prev => prev.map(i => i.id === id ? { ...i, qty: Math.max(0, i.qty + delta) } : i).filter(i => i.qty > 0));
+  const updateQty = (id, delta) => setCart(prev => prev.map(i => {
+    if (i.id !== id) return i;
+    const stock = products.find(p => p.id === id)?.stock ?? Infinity;
+    return { ...i, qty: Math.max(0, Math.min(stock, i.qty + delta)) };
+  }).filter(i => i.qty > 0));
   const removeItem = (id) => setCart(prev => prev.filter(i => i.id !== id));
 
   // "Scan": prompt for a SKU/barcode and add the matching product.
@@ -875,7 +872,11 @@ const POSView = () => {
       (p.sku || '').toLowerCase() === code.toLowerCase() ||
       (p.barcode || '').toLowerCase() === code.toLowerCase()
     );
-    if (match) { addToCart(match); toast(`${productName(match)} added`); return true; }
+    if (match) {
+      const added = addToCart(match);
+      if (added) toast(`${productName(match)} added`);
+      return added;
+    }
     toast(`No product for code "${code}"`, 'error');
     return false;
   };
@@ -884,10 +885,20 @@ const POSView = () => {
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const tva = subtotal * tvaRate;
   const total = subtotal + tva;
-  const earnedPoints = Math.floor(total / 1000);
 
   const completePayment = async () => {
     if (cart.length === 0 || !activeCashier) return;
+    // Re-check against the latest known stock right before sending — the
+    // cart may have been built a while ago and another terminal could have
+    // sold the same product since. The backend re-checks this too (it has
+    // the truly current number); this is just a faster, friendlier reject.
+    for (const item of cart) {
+      const live = products.find(p => p.id === item.id);
+      if (live && live.stock < item.qty) {
+        toast(`Only ${live.stock} ${productName(live)} in stock — adjust the cart`, 'error');
+        return;
+      }
+    }
     // Identifies this exact checkout attempt so a retry (by us, automatically,
     // once back online) can never create a second sale server-side — see the
     // dedup check in POST /orders.
@@ -900,7 +911,7 @@ const POSView = () => {
     try {
       const order = await api.createOrder(payload);
       setLastInvoice(order.invoiceNo);
-      refresh(); // pull fresh stock levels + customer points
+      refresh(); // pull fresh stock levels + customer spend/visits
       setShowReceipt(true);
     } catch (e) {
       if (!e.status) {
@@ -918,7 +929,7 @@ const POSView = () => {
 
   const startNewOrder = () => { setCart([]); setShowReceipt(false); };
 
-  const receiptData = { items: cart, subtotal, tva, total, customer, method: paymentMethod, earnedPoints, invoiceNo: lastInvoice };
+  const receiptData = { items: cart, subtotal, tva, total, customer, method: paymentMethod, invoiceNo: lastInvoice };
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
@@ -962,11 +973,16 @@ const POSView = () => {
         <div className="lg:flex-1 lg:overflow-y-auto px-4 sm:px-7 py-5">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
             {filtered.map(p => {
-              const lowStock = p.stock < 10;
+              const outOfStock = p.stock <= 0;
+              const lowStock = !outOfStock && p.stock < 10;
               return (
-                <button key={p.id} onClick={() => addToCart(p)}
-                  className="group relative bg-white rounded-2xl p-3.5 border border-stone-200/80 hover:border-emerald-600 hover:shadow-lg hover:shadow-emerald-900/5 transition-all text-left">
-                  {lowStock && (
+                <button key={p.id} onClick={() => addToCart(p)} disabled={outOfStock}
+                  className={`group relative bg-white rounded-2xl p-3.5 border text-left transition-all ${outOfStock ? 'border-stone-200/80 opacity-50 cursor-not-allowed' : 'border-stone-200/80 hover:border-emerald-600 hover:shadow-lg hover:shadow-emerald-900/5'}`}>
+                  {outOfStock ? (
+                    <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-medium rounded-md flex items-center gap-1">
+                      <AlertTriangle size={9} /> {t('out_of_stock')}
+                    </div>
+                  ) : lowStock && (
                     <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-medium rounded-md flex items-center gap-1">
                       <AlertTriangle size={9} /> {t('low')}
                     </div>
@@ -997,18 +1013,21 @@ const POSView = () => {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-stone-900 truncate">{customer.name}</div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">{customer.tier}</span>
-                  <span className="text-stone-300">·</span>
-                  <span className="text-xs text-stone-600 flex items-center gap-1"><Star size={10} className="fill-amber-400 text-amber-400" /> {customer.points} {t('pts')}</span>
-                </div>
+                <span className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">{customer.tier}</span>
               </div>
               <button onClick={() => setCustomer(null)} className="p-1.5 rounded-md hover:bg-stone-100"><X size={14} className="text-stone-400" /></button>
             </div>
           ) : (
-            <button onClick={() => setShowCustomerPicker(true)} className="w-full flex items-center gap-2 px-3 py-2.5 border-2 border-dashed border-stone-200 rounded-lg text-sm text-stone-500 hover:border-emerald-600 hover:text-emerald-700">
-              <Plus size={15} /> {t('add_customer')}
-            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center text-stone-400 flex-shrink-0">
+                <UserCircle2 size={18} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-stone-900 truncate">{t('walk_in_customer')}</div>
+                <div className="text-xs text-stone-400">{t('no_loyalty_account')}</div>
+              </div>
+              <button onClick={() => setShowCustomerPicker(true)} className="text-xs text-emerald-700 hover:text-emerald-900 font-medium flex-shrink-0">{t('add')}</button>
+            </div>
           )}
         </div>
 
@@ -1057,12 +1076,6 @@ const POSView = () => {
               <span className="text-stone-900 font-medium">{t('total')}</span>
               <span className="font-serif text-2xl text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(total)}</span>
             </div>
-            {customer && earnedPoints > 0 && (
-              <div className="flex justify-between text-xs text-amber-700 mt-1">
-                <span className="flex items-center gap-1"><Sparkles size={11} /> {t('earns')}</span>
-                <span className="font-medium">+{earnedPoints} {t('pts')}</span>
-              </div>
-            )}
           </div>
 
           <div className="grid grid-cols-3 gap-1.5 mb-3">
@@ -1118,7 +1131,7 @@ const POSView = () => {
                 <div className="text-sm font-medium text-stone-900">{c.name}</div>
                 <div className="text-xs text-stone-500">{c.phone}</div>
               </div>
-              <span className="text-xs text-stone-500">{c.tier} · {c.points} pts</span>
+              <span className="text-xs text-stone-500">{c.tier}</span>
             </button>
           ))}
         </div>
@@ -1905,8 +1918,8 @@ const CustomersView = () => {
   const list = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
   const [detail, setDetail] = useState(null);
   const exportCustomers = () => {
-    const rows = [['Name', 'Phone', 'Tier', 'Points', 'Visits', 'Lifetime value']];
-    list.forEach(c => rows.push([c.name, c.phone, c.tier, c.points, c.visits, c.spent]));
+    const rows = [['Name', 'Phone', 'Tier', 'Visits', 'Lifetime value']];
+    list.forEach(c => rows.push([c.name, c.phone, c.tier, c.visits, c.spent]));
     downloadCsv(`customers-${new Date().toISOString().slice(0, 10)}.csv`, rows);
   };
   const totalCustomers = list.length;
@@ -1965,7 +1978,6 @@ const CustomersView = () => {
             <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
               <th className="px-5 py-3">{t('customer')}</th>
               <th className="px-3 py-3">{t('tier')}</th>
-              <th className="px-3 py-3">{t('points')}</th>
               <th className="px-3 py-3">{t('visits')}</th>
               <th className="px-3 py-3">{t('lifetime_value')}</th>
               <th className="px-5 py-3"></th>
@@ -1987,12 +1999,6 @@ const CustomersView = () => {
                 </td>
                 <td className="px-3 py-3">
                   <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-medium ${TIER_COLOR[c.tier]}`}>{c.tier}</span>
-                </td>
-                <td className="px-3 py-3">
-                  <div className="flex items-center gap-1 text-sm">
-                    <Star size={12} className="fill-amber-400 text-amber-400" />
-                    <span className="font-medium">{c.points.toLocaleString()}</span>
-                  </div>
                 </td>
                 <td className="px-3 py-3 text-sm text-stone-700">{c.visits}</td>
                 <td className="px-3 py-3 text-sm font-medium text-stone-900">{fmt(c.spent)}</td>
@@ -2020,7 +2026,6 @@ const CustomersView = () => {
             </div>
             <div className="grid grid-cols-2 gap-3 pt-2">
               <div className="bg-stone-50 rounded-lg p-3"><div className="text-xs text-stone-500">{t('tier')}</div><div className="font-medium">{detail.tier}</div></div>
-              <div className="bg-stone-50 rounded-lg p-3"><div className="text-xs text-stone-500">{t('points')}</div><div className="font-medium">{detail.points.toLocaleString()}</div></div>
               <div className="bg-stone-50 rounded-lg p-3"><div className="text-xs text-stone-500">{t('visits')}</div><div className="font-medium">{detail.visits}</div></div>
               <div className="bg-stone-50 rounded-lg p-3"><div className="text-xs text-stone-500">{t('lifetime_value')}</div><div className="font-medium">{fmt(detail.spent)}</div></div>
             </div>
@@ -2489,7 +2494,6 @@ const SettingsView = () => {
     paperWidth: '80',
     showLogo: true,
     showQR: true,
-    showLoyalty: true,
     tvaRate: '19.25',
     tvaIncluded: false,
     taxIdPrint: true,
@@ -2685,9 +2689,6 @@ const SettingsView = () => {
               </SettingsField>
               <SettingsField label={t('show_qr')} hint="Required for DGI e-invoice compliance">
                 <Toggle checked={settings.showQR} onChange={update('showQR')} />
-              </SettingsField>
-              <SettingsField label={t('show_loyalty')}>
-                <Toggle checked={settings.showLoyalty} onChange={update('showLoyalty')} />
               </SettingsField>
             </SettingsCard>
           )}
