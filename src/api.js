@@ -100,6 +100,7 @@ export const api = {
   deleteExpense: (id) => req('DELETE', `/expenses/${id}`),
   // maintenance
   clearData: () => req('POST', '/maintenance/clear-data'),
+  clearActivity: () => req('POST', '/maintenance/clear-activity'),
 };
 
 export default api;

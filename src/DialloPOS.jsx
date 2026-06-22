@@ -1252,7 +1252,10 @@ const DashboardView = () => {
           accent={todayPnl && todayPnl.netProfit < 0 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}
         />
         <KpiCard label={t('orders')} value={ordersCount} icon={Receipt} accent="bg-amber-50 text-amber-700" />
-        <KpiCard label={t('customers')} value={String(customers.length)} icon={Users} accent="bg-rose-50 text-rose-700" />
+        {/* Every checkout counts as one customer served — most sales are
+            walk-ins with no loyalty record attached, so customers.length
+            would otherwise undercount actual foot traffic. */}
+        <KpiCard label={t('customers')} value={ordersCount} icon={Users} accent="bg-rose-50 text-rose-700" />
         <KpiCard label={t('low_stock_items')} value={String(lowCount)} icon={AlertTriangle} accent="bg-orange-50 text-orange-700" />
       </div>
 
@@ -2617,13 +2620,23 @@ const SettingsView = () => {
   };
   const clearAllData = async () => {
     if (!window.confirm('Clear ALL demo data — inventory, sales, dashboard, customers, suppliers and employees — so the shop starts from scratch?\n\nLogin accounts and settings are kept. It cannot be undone.')) return;
-    if (!window.confirm('Are you absolutely sure? Every product, sale, customer, supplier, employee and other user login will be permanently deleted.')) return;
+    if (!window.confirm('Are you absolutely sure? Every product, sale, customer, supplier and employee will be permanently deleted. Login accounts are kept.')) return;
     try {
       await api.clearData();
       toast('All demo data cleared — the app now starts from zero');
       refresh();
     } catch (e) {
       toast(!e.status ? "Can't clear data while offline — try again once connected" : e.message, 'error');
+    }
+  };
+  const clearActivity = async () => {
+    if (!window.confirm("Reset the Dashboard and Shift history — clears all sales, order history and clock-in/out records so reporting starts fresh?\n\nProducts, customers, suppliers, expenses and employees are kept. It cannot be undone.")) return;
+    try {
+      await api.clearActivity();
+      toast('Dashboard and shift history reset');
+      refresh();
+    } catch (e) {
+      toast(!e.status ? "Can't reset while offline — try again once connected" : e.message, 'error');
     }
   };
   const cancelSettings = () => {
@@ -2887,6 +2900,16 @@ const SettingsView = () => {
                   This cannot be undone.
                 </p>
                 <button onClick={clearAllData} className="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700">Clear all data</button>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 mt-4">
+                <h4 className="font-medium text-amber-700 flex items-center gap-2 mb-1"><RefreshCw size={15} /> Reset dashboard &amp; shift history</h4>
+                <p className="text-xs text-stone-600 max-w-lg mb-3">
+                  Clears sales history, order records and clock-in/out logs so the Dashboard and Shift history
+                  start fresh — useful at the start of a new reporting period. Products, customers, suppliers,
+                  expenses and employees are kept. This cannot be undone.
+                </p>
+                <button onClick={clearActivity} className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">Reset dashboard &amp; shift history</button>
               </div>
             </SettingsCard>
           )}
