@@ -487,6 +487,22 @@ r.post('/maintenance/clear-data', requireAuth, requireRole('admin'), h((req, res
   res.json({ ok: true });
 }));
 
+// Admin only: a narrower reset than clear-data above — wipes just the
+// activity history that feeds the Dashboard (orders, their line items, and
+// stock movements) plus the shift clock-in/out log. Products, customers,
+// suppliers, expenses, employees, and user accounts are untouched, so this
+// is safe to use to start a fresh reporting period without losing the
+// shop's actual catalog/roster data.
+r.post('/maintenance/clear-activity', requireAuth, requireRole('admin'), h((req, res) => {
+  const tx = db.transaction(() => {
+    for (const tbl of ['order_items', 'orders', 'stock_movements', 'shifts']) {
+      db.prepare(`DELETE FROM ${tbl}`).run();
+    }
+  });
+  tx();
+  res.json({ ok: true });
+}));
+
 // ---------------- REPORTS ----------------
 // Simple aggregations the front-end can render or download.
 // `totals` is scoped to TODAY (it powers the Dashboard's "Today's sales" KPI
