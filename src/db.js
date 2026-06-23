@@ -293,4 +293,33 @@ CREATE TABLE IF NOT EXISTS po_payments (
 );
 `);
 
+// Product categories. id is the slug used everywhere else (products.category,
+// checkout filters, Home page cards); label is what's actually shown/typed.
+db.exec(`
+CREATE TABLE IF NOT EXISTS categories (
+  id    TEXT PRIMARY KEY,
+  label TEXT NOT NULL
+);
+`);
+
+// Backfill the 7 built-in categories once. Not gated behind seedIfEmpty —
+// that skips entirely on any already-initialized database, which is every
+// real deployment after its first boot, so this needs to run independently
+// to reach databases that existed before this table did.
+try {
+  const count = db.prepare('SELECT COUNT(*) AS n FROM categories').get().n;
+  if (count === 0) {
+    const defaults = [
+      ['cosmetics', 'Cosmetics'], ['wines', 'Wines'], ['whiskey', 'Whiskey'],
+      ['school_materials', 'School materials'], ['perfumes', 'Perfumes'],
+      ['icecream', 'Ice cream'], ['shawarma', 'Shawarma'],
+    ];
+    const ins = db.prepare('INSERT INTO categories (id, label) VALUES (?, ?)');
+    defaults.forEach(([id, label]) => ins.run(id, label));
+    console.log('• Seeded default categories');
+  }
+} catch (e) {
+  console.warn('categories backfill skipped:', e.message);
+}
+
 export default db;

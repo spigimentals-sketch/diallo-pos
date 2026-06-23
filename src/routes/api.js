@@ -131,6 +131,28 @@ r.delete('/products/:id', h((req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------------- CATEGORIES ----------------
+r.get('/categories', h((req, res) => {
+  res.json(db.prepare('SELECT * FROM categories ORDER BY label').all());
+}));
+
+// Lets the product form create a category on the fly instead of being
+// limited to the 7 built-in ones. id is derived from the label (slugified)
+// so it slots into products.category/checkout filters/Home cards the same
+// way the built-ins do; re-posting an existing label just returns it as-is
+// rather than erroring, so the form can call this unconditionally.
+r.post('/categories', h((req, res) => {
+  const { label } = req.body || {};
+  if (!label || !label.trim()) throw new Error('label is required');
+  const trimmed = label.trim();
+  const id = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!id) throw new Error('Could not derive a category id from that name');
+  const existing = db.prepare('SELECT * FROM categories WHERE id=?').get(id);
+  if (existing) return res.json(existing);
+  db.prepare('INSERT INTO categories (id, label) VALUES (?, ?)').run(id, trimmed);
+  res.status(201).json({ id, label: trimmed });
+}));
+
 // ---------------- CUSTOMERS ----------------
 r.get('/customers', h((req, res) => {
   res.json(db.prepare('SELECT * FROM customers ORDER BY spent DESC').all());
