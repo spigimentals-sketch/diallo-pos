@@ -2,10 +2,16 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import DialloPOS from './DialloPOS.jsx';
+import CustomerDisplay from './CustomerDisplay.jsx';
+
+// A second browser window opened with ?display=customer (see
+// customerDisplay.js) gets the bare customer-facing cart view instead of
+// the full POS — same bundle, same origin, just a different root component.
+const isCustomerDisplay = new URLSearchParams(window.location.search).get('display') === 'customer';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <DialloPOS />
+    {isCustomerDisplay ? <CustomerDisplay /> : <DialloPOS />}
   </React.StrictMode>
 );
 

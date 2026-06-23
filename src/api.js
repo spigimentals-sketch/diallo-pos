@@ -50,6 +50,9 @@ export const api = {
   updateProduct: (id, p) => req('PUT', `/products/${id}`, p),
   deleteProduct: (id) => req('DELETE', `/products/${id}`),
   uploadImage: (filename, dataUrl) => req('POST', '/upload', { filename, dataUrl }),
+  // categories
+  getCategories: () => req('GET', '/categories'),
+  createCategory: (label) => req('POST', '/categories', { label }),
   // customers
   getCustomers: () => req('GET', '/customers'),
   createCustomer: (c) => req('POST', '/customers', c),

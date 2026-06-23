@@ -213,6 +213,7 @@ export function DataProvider({ fallback, children }) {
     employees: fallback.employees || [],
     shifts: fallback.shifts || [],
     settings: fallback.settings || {},
+    categories: fallback.categories || [],
   });
   const [online, setOnline] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -220,12 +221,12 @@ export function DataProvider({ fallback, children }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [products, customers, suppliers, purchaseOrders, stockMovements, users, employees, shifts, settings] =
+      const [products, customers, suppliers, purchaseOrders, stockMovements, users, employees, shifts, settings, categories] =
         await Promise.all([
           api.getProducts(), api.getCustomers(), api.getSuppliers(), api.getPurchaseOrders(),
-          api.getStockMovements(), api.getUsers(), api.getEmployees(), api.getShifts(), api.getSettings(),
+          api.getStockMovements(), api.getUsers(), api.getEmployees(), api.getShifts(), api.getSettings(), api.getCategories(),
         ]);
-      setState({ products, customers, suppliers, purchaseOrders, stockMovements, users, employees, shifts, settings });
+      setState({ products, customers, suppliers, purchaseOrders, stockMovements, users, employees, shifts, settings, categories });
       setOnline(true);
     } catch (e) {
       // Backend not running — keep using the fallback seed (demo mode).
@@ -273,6 +274,10 @@ export function DataProvider({ fallback, children }) {
       const i = list.findIndex(x => x.id === p.id);
       return i >= 0 ? list.map(x => x.id === p.id ? p : x) : [...list, p];
     }),
+    upsertCategory: (c) => patch('categories', list => {
+      const i = list.findIndex(x => x.id === c.id);
+      return i >= 0 ? list.map(x => x.id === c.id ? c : x) : [...list, c];
+    }),
     upsertCustomer: (c) => patch('customers', list => {
       const i = list.findIndex(x => x.id === c.id);
       return i >= 0 ? list.map(x => x.id === c.id ? c : x) : [...list, c];
@@ -314,14 +319,36 @@ const PRODUCT_EMOJIS = [
 ];
 
 export function ProductForm({ open, onClose, initial }) {
-  const { upsertProduct, patch } = useData();
+  const { upsertProduct, patch, categories: liveCategories, upsertCategory } = useData();
   const { toast } = useToast();
   const blank = { name: '', name_fr: '', category: 'cosmetics', price: 0, cost: 0, stock: 0, sku: '', emoji: '📦', image: null };
   const [form, setForm] = useState(initial || blank);
   const [uploading, setUploading] = useState(false);
   const [autoGenerateSku, setAutoGenerateSku] = useState(false);
-  useEffect(() => { setForm(initial || blank); setAutoGenerateSku(false); }, [initial, open]);
+  const [addingCat, setAddingCat] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  useEffect(() => { setForm(initial || blank); setAutoGenerateSku(false); setAddingCat(false); setNewCatName(''); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const categoryOptions = (liveCategories?.length ? liveCategories : CATS.map(c => ({ id: c, label: c })))
+    .map(c => ({ value: c.id, label: c.label }));
+
+  // Lets the form create a category that isn't one of the built-in ones yet,
+  // instead of being stuck picking the closest existing match. The new
+  // category becomes selected immediately so the rest of the form continues
+  // uninterrupted.
+  const handleAddCategory = async () => {
+    if (!newCatName.trim()) return;
+    try {
+      const created = await api.createCategory(newCatName.trim());
+      upsertCategory(created);
+      setForm(f => ({ ...f, category: created.id }));
+      setNewCatName('');
+      setAddingCat(false);
+      toast(`Category "${created.label}" added`);
+    } catch (e) {
+      toast(!e.status ? "Can't add a category while offline — try again once connected" : e.message, 'error');
+    }
+  };
 
   const makeSku = (category = 'SKU') => {
     const prefix = category.toString().replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 3) || 'SKU';
@@ -463,7 +490,26 @@ export function ProductForm({ open, onClose, initial }) {
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Category"><SelectInput value={form.category} onChange={set('category')} options={CATS.map(c => ({ value: c, label: c }))} /></Field>
+        <Field label="Category">
+          {!addingCat ? (
+            <div className="flex items-center gap-2">
+              <SelectInput value={form.category} onChange={set('category')} options={categoryOptions} />
+              <button type="button" onClick={() => setAddingCat(true)}
+                className="px-2.5 py-2 border border-stone-200 rounded-lg text-xs font-medium text-emerald-700 hover:bg-emerald-50 flex-shrink-0 whitespace-nowrap">
+                + New
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="New category name"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCategory(); } }} autoFocus />
+              <button type="button" onClick={handleAddCategory}
+                className="px-3 py-2 bg-emerald-900 text-white rounded-lg text-xs font-medium hover:bg-emerald-800 flex-shrink-0">Add</button>
+              <button type="button" onClick={() => { setAddingCat(false); setNewCatName(''); }}
+                className="p-2 text-stone-400 hover:text-stone-600 flex-shrink-0"><X size={14} /></button>
+            </div>
+          )}
+        </Field>
         <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
         <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
         <Field label="Stock"><Input type="number" value={form.stock} onChange={set('stock')} /></Field>

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useMemo, useContext, createContext, useEffect, useRef } from 'react';
 import api, { imageUrl } from './api.js';
+import { openCustomerDisplay, CHANNEL_NAME } from './customerDisplay.js';
 import {
   ToastProvider, useToast, DataProvider, useData, Modal, Field, Input,
   ProductForm, SupplierForm, UserForm, POForm,
@@ -18,7 +19,8 @@ import {
   Clock, UserCircle2, Printer, Wallet, Truck, ClipboardList,
   ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
   Globe, Building, Hash, Percent, ShieldCheck, BellRing,
-  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu, Camera
+  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu, Camera, Monitor, Home,
+  PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
@@ -27,8 +29,10 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
 const TRANSLATIONS = {
   en: {
     // Nav
-    checkout: 'Checkout', dashboard: 'Dashboard', inventory: 'Inventory',
+    home: 'Home', checkout: 'Checkout', dashboard: 'Dashboard', inventory: 'Inventory',
     shifts: 'Shifts',
+    go_checkout: 'Check Out', welcome_back: 'Welcome back', sub_home: 'Pick a category or jump straight to checkout',
+    good_morning: 'Good morning', good_afternoon: 'Good afternoon', good_evening: 'Good evening', of_sales: 'of sales',
     customers: 'Customers', stores: 'Stores', reports: 'Reports', expenses: 'Expenses',
     settings: 'Settings', help: 'Help',
     // Subtitles
@@ -127,8 +131,10 @@ const TRANSLATIONS = {
     close: 'Close',
   },
   fr: {
-    checkout: 'Caisse', dashboard: 'Tableau de bord', inventory: 'Inventaire',
+    home: 'Accueil', checkout: 'Caisse', dashboard: 'Tableau de bord', inventory: 'Inventaire',
     shifts: 'Équipes',
+    go_checkout: 'Passer en caisse', welcome_back: 'Bon retour', sub_home: 'Choisissez une catégorie ou passez directement en caisse',
+    good_morning: 'Bonjour', good_afternoon: 'Bon après-midi', good_evening: 'Bonsoir', of_sales: 'des ventes',
     customers: 'Clients', stores: 'Magasins', reports: 'Rapports', expenses: 'Dépenses',
     settings: 'Paramètres', help: 'Aide',
     sub_pos: 'Nouvelle commande · Caisse 03',
@@ -238,13 +244,13 @@ const useShifts = () => useContext(ShiftContext);
 // accountant -> read-only finance role: dashboard, inventory (no edit), customers, reports
 //               with cost/margin + accounting, shifts (view), expenses. NO checkout, NO edits.
 const ROLE_ACCESS = {
-  admin:   { pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true,
+  admin:   { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true,
              seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
-  manager: { pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
+  manager: { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
-  cashier: { pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false,
+  cashier: { home: true, pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
-  accountant: { pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
+  accountant: { home: false, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
              seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
 };
 const RoleContext = createContext(null);
@@ -372,6 +378,24 @@ const CATEGORIES = [
   { id: 'shawarma', tKey: 'shawarma', icon: Beef },
 ];
 
+// Merges the 7 built-in categories (which have a translated label + a
+// specific icon) with whatever's actually in the backend's categories
+// table — covers the defaults plus anything custom added via "+ New" in
+// the product form. A custom one has no translation key (it's already in
+// whatever language someone typed it in) and gets a generic icon.
+const useCategoryList = ({ includeAll = false } = {}) => {
+  const { t } = useT();
+  const { online, categories: liveCategories } = useData();
+  const builtin = new Map(CATEGORIES.filter(c => c.id !== 'all').map(c => [c.id, c]));
+  const fallbackDefaults = CATEGORIES.filter(c => c.id !== 'all').map(c => ({ id: c.id, label: t(c.tKey) }));
+  const source = (online && liveCategories?.length) ? liveCategories : fallbackDefaults;
+  const list = source.map(c => {
+    const b = builtin.get(c.id);
+    return { id: c.id, label: b ? t(b.tKey) : c.label, icon: b?.icon || Package };
+  });
+  return includeAll ? [{ id: 'all', label: t('all_items'), icon: LayoutGrid }, ...list] : list;
+};
+
 const PRODUCTS = [];
 
 const PRODUCT_NAMES_FR = {};
@@ -405,7 +429,7 @@ const USERS_DATA = [
 ];
 
 // ============ HELPERS ============
-const fmt = (n) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' FCFA';
+export const fmt = (n) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' FCFA';
 const fmtShort = (n) => {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
   if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K';
@@ -440,22 +464,27 @@ const PO_STATUS = {
 };
 
 // ============ UI BITS ============
-const Logo = ({ size = 'md' }) => (
-  <div className="flex items-center gap-2.5">
-    <div className={`${size === 'sm' ? 'w-8 h-8' : 'w-10 h-10'} rounded-xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-emerald-900 flex items-center justify-center shadow-lg shadow-emerald-900/20 relative overflow-hidden`}>
-      <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/20" />
-      <span className="text-white font-serif font-bold text-lg relative" style={{ fontFamily: "'Fraunces', serif" }}>D</span>
-    </div>
-    <div>
-      <div className="font-serif text-stone-900 leading-none" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: size === 'sm' ? '18px' : '20px' }}>
-        Diallo
+export const Logo = ({ size = 'md', subtitle = 'Point of Sale', hideTextClass = '' }) => {
+  const boxSize = size === 'sm' ? 'w-8 h-8' : size === 'lg' ? 'w-16 h-16' : 'w-10 h-10';
+  const dSize = size === 'sm' ? 'text-lg' : size === 'lg' ? 'text-3xl' : 'text-lg';
+  const nameSize = size === 'sm' ? '18px' : size === 'lg' ? '32px' : '20px';
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className={`${boxSize} rounded-xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-emerald-900 flex items-center justify-center shadow-lg shadow-emerald-900/20 relative overflow-hidden flex-shrink-0`}>
+        <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/20" />
+        <span className={`text-white font-serif font-bold ${dSize} relative`} style={{ fontFamily: "'Fraunces', serif" }}>D</span>
       </div>
-      <div className="text-[10px] text-stone-500 tracking-[0.15em] uppercase mt-0.5">Point of Sale</div>
+      <div className={hideTextClass}>
+        <div className="font-serif text-stone-900 leading-none whitespace-nowrap" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: nameSize }}>
+          Diallo
+        </div>
+        <div className={`text-stone-500 tracking-[0.15em] uppercase mt-0.5 whitespace-nowrap ${size === 'lg' ? 'text-xs' : 'text-[10px]'}`}>{subtitle}</div>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
-const Sidebar = ({ view, setView, mobileNav, closeNav }) => {
+const Sidebar = ({ view, setView, mobileNav, closeNav, collapsed, onToggleCollapse }) => {
   const { t } = useT();
   const { role, can } = useRole();
   const { toast } = useToast();
@@ -464,6 +493,7 @@ const Sidebar = ({ view, setView, mobileNav, closeNav }) => {
     if (window.confirm('Sign out of Diallo POS?')) { authLogout(); toast('Signed out', 'info'); }
   };
   const allNav = [
+    { id: 'home', label: t('home') || 'Home', icon: Home },
     { id: 'pos', label: t('checkout'), icon: ShoppingCart },
     { id: 'dashboard', label: t('dashboard'), icon: BarChart3 },
     { id: 'inventory', label: t('inventory'), icon: Package },
@@ -476,48 +506,58 @@ const Sidebar = ({ view, setView, mobileNav, closeNav }) => {
   // reachable) from a phone or tablet, same device check clock-in itself uses.
   const onHandheld = isHandheldUA(navigator.userAgent);
   const nav = allNav.filter(item => can[item.id] && (item.id !== 'shifts' || !onHandheld));
+  // Collapsing is a desktop-only convenience (more room for the actual work
+  // area) — mobile always uses the full-width slide-over triggered by the
+  // hamburger button, regardless of this state.
   return (
-    <aside className={`w-60 bg-white border-r border-stone-200/80 flex flex-col h-full flex-shrink-0 z-40 max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:shadow-2xl max-lg:transition-transform ${mobileNav ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}`}>
-      <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
-        <Logo />
+    <aside className={`${collapsed ? 'lg:w-[76px]' : 'lg:w-60'} w-60 bg-white border-r border-stone-200/80 flex flex-col h-full flex-shrink-0 z-40 transition-[width] duration-200 max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:shadow-2xl max-lg:transition-transform ${mobileNav ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}`}>
+      <div className={`border-b border-stone-200/80 flex items-center justify-between px-5 py-5 ${collapsed ? 'lg:justify-center lg:px-3' : ''}`}>
+        <Logo hideTextClass={collapsed ? 'lg:hidden' : ''} />
         <button onClick={closeNav} className="lg:hidden p-1.5 rounded-md hover:bg-stone-100 text-stone-500"><X size={18} /></button>
+      </div>
+      <div className="hidden lg:flex justify-end px-3 pt-2">
+        <button onClick={onToggleCollapse} title={collapsed ? 'Expand menu' : 'Collapse menu'}
+          className="p-1.5 rounded-md hover:bg-stone-100 text-stone-400 hover:text-stone-600">
+          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
       </div>
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {nav.map(item => {
           const Icon = item.icon;
           const active = view === item.id;
           return (
-            <button key={item.id} onClick={() => setView(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
+            <button key={item.id} onClick={() => setView(item.id)} title={collapsed ? item.label : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${collapsed ? 'lg:justify-center' : ''} ${
                 active ? 'bg-emerald-900 text-white shadow-sm shadow-emerald-900/20' : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
               }`}>
-              <Icon size={17} strokeWidth={active ? 2.2 : 1.8} />
-              <span className="font-medium">{item.label}</span>
-              {active && <ChevronRight size={14} className="ml-auto" />}
+              <Icon size={17} strokeWidth={active ? 2.2 : 1.8} className="flex-shrink-0" />
+              <span className={`font-medium ${collapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
+              {active && <ChevronRight size={14} className={`ml-auto ${collapsed ? 'lg:hidden' : ''}`} />}
             </button>
           );
         })}
       </nav>
       <div className="p-3 border-t border-stone-200/80 space-y-0.5">
-        {can.settings && <button onClick={() => setView('settings')}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
+        {can.settings && <button onClick={() => setView('settings')} title={collapsed ? t('settings') : undefined}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${collapsed ? 'lg:justify-center' : ''} ${
             view === 'settings' ? 'bg-emerald-900 text-white' : 'text-stone-600 hover:bg-stone-100'
           }`}>
-          <Settings size={17} strokeWidth={view === 'settings' ? 2.2 : 1.8} />
-          <span className="font-medium">{t('settings')}</span>
+          <Settings size={17} strokeWidth={view === 'settings' ? 2.2 : 1.8} className="flex-shrink-0" />
+          <span className={`font-medium ${collapsed ? 'lg:hidden' : ''}`}>{t('settings')}</span>
         </button>}
-        <button onClick={() => toast('Help: support@diallo.cm · +237 6 77 00 00 00', 'info')} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100">
-          <HelpCircle size={17} strokeWidth={1.8} /><span>{t('help')}</span>
+        <button onClick={() => toast('Help: support@diallo.cm · +237 6 77 00 00 00', 'info')} title={collapsed ? t('help') : undefined}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100 ${collapsed ? 'lg:justify-center' : ''}`}>
+          <HelpCircle size={17} strokeWidth={1.8} className="flex-shrink-0" /><span className={collapsed ? 'lg:hidden' : ''}>{t('help')}</span>
         </button>
       </div>
       <div className="p-3 border-t border-stone-200/80">
-        <div className="flex items-center gap-3 px-2 py-2">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm font-semibold shadow-sm">{(user?.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</div>
-          <div className="flex-1 min-w-0">
+        <div className={`flex items-center gap-3 px-2 py-2 ${collapsed ? 'lg:justify-center' : ''}`}>
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm font-semibold shadow-sm flex-shrink-0">{(user?.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</div>
+          <div className={`flex-1 min-w-0 ${collapsed ? 'lg:hidden' : ''}`}>
             <div className="text-sm font-medium text-stone-900 truncate">{user?.name || 'User'}</div>
             <div className="text-[11px] text-stone-500 truncate capitalize">{user?.role || role} · {user?.store || ''}</div>
           </div>
-          <button onClick={logout} title="Sign out" className="p-1.5 rounded-md hover:bg-stone-100">
+          <button onClick={logout} title="Sign out" className={`p-1.5 rounded-md hover:bg-stone-100 flex-shrink-0 ${collapsed ? 'lg:hidden' : ''}`}>
             <LogOut size={15} className="text-stone-400" />
           </button>
         </div>
@@ -836,7 +876,96 @@ const ScanModal = ({ open, onClose, onScan }) => {
   );
 };
 
-const POSView = () => {
+// ============ HOME ============
+// The first thing anyone sees after logging in — a fast visual way into
+// Checkout, either straight in or pre-filtered to a category. Doesn't read
+// or write anything; everything here is just navigation.
+const CATEGORY_STYLE = {
+  cosmetics: { gradient: 'from-rose-400 to-pink-600', icon: Sparkles },
+  wines: { gradient: 'from-purple-500 to-violet-700', icon: Wine },
+  whiskey: { gradient: 'from-amber-500 to-orange-700', icon: Sparkles },
+  school_materials: { gradient: 'from-sky-400 to-blue-600', icon: Package },
+  perfumes: { gradient: 'from-fuchsia-400 to-purple-600', icon: Sparkles },
+  icecream: { gradient: 'from-cyan-400 to-teal-600', icon: Cookie },
+  shawarma: { gradient: 'from-orange-500 to-red-600', icon: Beef },
+};
+
+const HomeView = ({ onCheckout, onSelectCategory }) => {
+  const { t } = useT();
+  const { user } = useAuth();
+  const { online, products: liveProducts } = useData();
+  const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
+  const cats = useCategoryList();
+
+  // Reuses the same sales-by-category breakdown the Dashboard's pie chart is
+  // built from. /reports/sales caps "days" at 90 server-side, so this is
+  // each category's share of the last 90 days, not literally all-time.
+  const [report, setReport] = useState(null);
+  useEffect(() => { api.salesReport(90).then(setReport).catch(() => {}); }, []);
+  const totalSales = (report?.byCategory || []).reduce((s, c) => s + c.sales, 0);
+  const pctFor = (catId) => {
+    if (!totalSales) return 0;
+    const entry = report?.byCategory?.find(c => c.category === catId);
+    return entry ? Math.round((entry.sales / totalSales) * 100) : 0;
+  };
+
+  const sampleFor = (catId) => {
+    const inCat = products.filter(p => p.category === catId);
+    return inCat.find(p => p.image) || inCat[0] || null;
+  };
+
+  const greeting = () => {
+    const h = new Date().getHours();
+    if (h < 12) return t('good_morning');
+    if (h < 18) return t('good_afternoon');
+    return t('good_evening');
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-gradient-to-br from-stone-50 via-white to-emerald-50/30 p-6 sm:p-10">
+      <div className="max-w-5xl mx-auto">
+        <div className="mb-8">
+          <div className="text-sm text-stone-500">{greeting()},</div>
+          <h1 className="text-3xl sm:text-4xl text-stone-900 leading-tight" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+            {(user?.name || '').split(' ')[0] || t('welcome_back')}
+          </h1>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-10">
+          {cats.map(cat => {
+            const style = CATEGORY_STYLE[cat.id] || { gradient: 'from-stone-400 to-stone-600', icon: Package };
+            const Icon = style.icon;
+            const sample = sampleFor(cat.id);
+            const pct = pctFor(cat.id);
+            return (
+              <button key={cat.id} onClick={() => onSelectCategory(cat.id)}
+                className={`relative aspect-square rounded-3xl bg-gradient-to-br ${style.gradient} text-white overflow-hidden shadow-lg hover:shadow-2xl hover:-translate-y-1 transition-all p-5 flex flex-col items-center justify-center text-center gap-2`}>
+                {sample?.image ? (
+                  <img src={imageUrl(sample.image)} alt="" className="absolute inset-0 w-full h-full object-cover opacity-35" />
+                ) : (
+                  <div className="absolute -right-3 -bottom-5 text-8xl opacity-25 select-none">{sample?.emoji || '🛒'}</div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+                <div className="absolute top-3 right-3 z-10 px-2 py-0.5 rounded-full bg-white/25 backdrop-blur-sm text-[11px] font-semibold drop-shadow">
+                  {pct}% {t('of_sales') || 'of sales'}
+                </div>
+                <Icon size={26} className="relative z-10 drop-shadow" />
+                <div className="relative z-10 font-semibold text-xl leading-tight drop-shadow text-center">{cat.label}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        <button onClick={onCheckout}
+          className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-emerald-700 to-emerald-900 text-white rounded-2xl font-semibold text-lg hover:shadow-xl hover:shadow-emerald-900/25 transition-all flex items-center justify-center gap-3">
+          <ShoppingCart size={22} /> {t('go_checkout')}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const { t, lang } = useT();
   const { activeCashier } = useShifts();
   const { products: liveProducts, customers: liveCustomers, online, refresh, settings, queueMutation } = useData();
@@ -845,7 +974,12 @@ const POSView = () => {
   const { toast } = useToast();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customerList = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
-  const [activeCat, setActiveCat] = useState('all');
+  const categoryPills = useCategoryList({ includeAll: true });
+  const [activeCat, setActiveCat] = useState(initialCategory || 'all');
+  // Consume the Home page's category pick exactly once — otherwise it'd
+  // silently re-apply and override the cashier's own filter choice if this
+  // component re-rendered for any other reason.
+  useEffect(() => { if (initialCategory) onCategoryConsumed?.(); }, []); // eslint-disable-line
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
   const [customer, setCustomer] = useState(null);
@@ -917,9 +1051,32 @@ const POSView = () => {
   const total = subtotal + tva;
 
   // A frozen copy of what was just bought, separate from the live cart —
-  // the cart empties itself the instant payment completes, but the receipt
-  // (on screen and on the printout) still needs to show what was in it.
+  // the cart only empties once the cashier clicks "New order", but the
+  // receipt (on screen and on the printout) still needs to show what was
+  // in it even before that happens.
   const [completedOrder, setCompletedOrder] = useState(null);
+  // Drives the customer-facing second screen: once payment succeeds it
+  // switches to a thank-you message instead of still showing the (not yet
+  // cleared) cart, without affecting what the cashier sees on this screen.
+  const [justPaid, setJustPaid] = useState(false);
+
+  // Mirror the live cart to a second-screen window via BroadcastChannel —
+  // see customerDisplay.js / CustomerDisplay.jsx. Posting is a no-op if no
+  // such window is open; there's no handshake needed either way.
+  const customerChannel = useRef(null);
+  useEffect(() => {
+    customerChannel.current = new BroadcastChannel(CHANNEL_NAME);
+    return () => customerChannel.current.close();
+  }, []);
+  const broadcastCart = () => {
+    customerChannel.current?.postMessage({
+      items: cart.map(i => ({ name: productName(i), price: i.price, qty: i.qty, image: i.image || null, emoji: i.emoji || null })),
+      subtotal, tva, total,
+      customerName: customer?.name || null,
+      paid: justPaid,
+    });
+  };
+  useEffect(broadcastCart, [cart, subtotal, tva, total, customer, justPaid, lang]);
 
   const completePayment = async () => {
     if (cart.length === 0 || !activeCashier) return;
@@ -950,6 +1107,7 @@ const POSView = () => {
     try {
       const order = await api.createOrder(payload);
       setCompletedOrder({ ...snapshot, invoiceNo: order.invoiceNo });
+      setJustPaid(true);
       refresh(); // pull fresh stock levels + customer spend/visits
       setShowReceipt(true);
     } catch (e) {
@@ -959,6 +1117,7 @@ const POSView = () => {
         queueMutation('order', payload);
         const invoiceNo = 'INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000);
         setCompletedOrder({ ...snapshot, invoiceNo });
+        setJustPaid(true);
         toast('Offline — sale saved on this device, will sync automatically once back online', 'info');
         setShowReceipt(true);
       } else {
@@ -967,7 +1126,7 @@ const POSView = () => {
     }
   };
 
-  const startNewOrder = () => { setCart([]); setShowReceipt(false); setCompletedOrder(null); };
+  const startNewOrder = () => { setCart([]); setShowReceipt(false); setCompletedOrder(null); setJustPaid(false); };
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
@@ -993,7 +1152,7 @@ const POSView = () => {
 
         <div className="px-4 sm:px-7 py-4 border-b border-stone-200/60 flex-shrink-0">
           <div className="flex flex-wrap gap-2">
-            {CATEGORIES.map(cat => {
+            {categoryPills.map(cat => {
               const Icon = cat.icon;
               const active = activeCat === cat.id;
               return (
@@ -1001,7 +1160,7 @@ const POSView = () => {
                   className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm whitespace-nowrap transition-all ${
                     active ? 'bg-stone-900 text-white shadow-sm' : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
                   }`}>
-                  <Icon size={15} strokeWidth={1.8} /><span className="font-medium">{t(cat.tKey)}</span>
+                  <Icon size={15} strokeWidth={1.8} /><span className="font-medium">{cat.label}</span>
                 </button>
               );
             })}
@@ -1043,7 +1202,22 @@ const POSView = () => {
 
       <div className="w-full lg:w-[420px] bg-white border-t lg:border-t-0 lg:border-l border-stone-200/80 flex flex-col flex-shrink-0">
         <div className="p-5 border-b border-stone-200/80">
-          <div className="text-[10px] uppercase tracking-widest text-stone-400 font-medium mb-2">{t('customer')}</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-widest text-stone-400 font-medium">{t('customer')}</div>
+            <button
+              onClick={() => {
+                openCustomerDisplay();
+                // BroadcastChannel has no message history — a freshly opened
+                // window only sees what it's still listening for. Give it a
+                // moment to load and attach its listener, then resend the
+                // current cart so it's not just sitting on the empty state.
+                setTimeout(broadcastCart, 800);
+              }}
+              title="Open a customer-facing cart display for a second screen"
+              className="flex items-center gap-1 text-[11px] text-stone-500 hover:text-emerald-700">
+              <Monitor size={12} /> Customer display
+            </button>
+          </div>
           {customer ? (
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${TIER_COLOR[customer.tier]}`}>
@@ -1116,10 +1290,9 @@ const POSView = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5 mb-3">
+          <div className="grid grid-cols-2 gap-1.5 mb-3">
             {[
               { id: 'cash', icon: Banknote, label: t('cash') },
-              { id: 'card', icon: CreditCard, label: t('card') },
               { id: 'mobile', icon: Smartphone, label: t('mobile') },
             ].map(m => {
               const Icon = m.icon;
@@ -1189,6 +1362,7 @@ const DashboardView = () => {
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customers = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
+  const categoryList = useCategoryList();
   const [range, setRange] = useState('7D');
   const [report, setReport] = useState(null);
   const [profitability, setProfitability] = useState([]);
@@ -1228,14 +1402,14 @@ const DashboardView = () => {
     const rows = report?.byCategory || [];
     const total = rows.reduce((s, r) => s + r.sales, 0);
     return rows.map((r, i) => {
-      const cat = CATEGORIES.find(c => c.id === r.category);
+      const cat = categoryList.find(c => c.id === r.category);
       return {
-        name: cat ? t(cat.tKey) : r.category,
+        name: cat ? cat.label : r.category,
         value: total ? Math.round((r.sales / total) * 100) : 0,
         color: PIE_COLORS[i % PIE_COLORS.length],
       };
     });
-  }, [report, t]);
+  }, [report, categoryList]);
 
   const lowCount = products.filter(p => p.stock < lowStockThreshold).length;
   const todaysSales = report?.totals?.revenue != null ? fmt(report.totals.revenue) : '0 FCFA';
@@ -1445,6 +1619,7 @@ const ProductsPanel = () => {
   const { products: liveProducts, online, settings } = useData();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
+  const categoryList = useCategoryList();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(false);
@@ -1514,7 +1689,7 @@ const ProductsPanel = () => {
           </thead>
           <tbody>
             {filtered.map(p => {
-              const cat = CATEGORIES.find(c => c.id === p.category);
+              const cat = categoryList.find(c => c.id === p.category);
               const lowStock = p.stock < lowStockThreshold;
               return (
                 <tr key={p.id} className="border-b border-stone-100 hover:bg-stone-50/50">
@@ -1525,7 +1700,7 @@ const ProductsPanel = () => {
                     </div>
                   </td>
                   <td className="px-3 py-3 text-xs font-mono text-stone-500">{p.sku}</td>
-                  <td className="px-3 py-3"><span className="text-xs text-stone-700">{cat ? t(cat.tKey) : ''}</span></td>
+                  <td className="px-3 py-3"><span className="text-xs text-stone-700">{cat ? cat.label : p.category}</span></td>
                   <td className="px-3 py-3 text-sm font-medium text-stone-900">{fmt(p.price)}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2">
@@ -3274,6 +3449,7 @@ export default function DialloPOS() {
   const t = (k) => TRANSLATIONS[lang]?.[k] ?? TRANSLATIONS.en[k] ?? k;
 
   const titles = {
+    home: { title: t('home') || 'Home', sub: t('sub_home') },
     pos: { title: t('checkout'), sub: t('sub_pos') },
     dashboard: { title: t('dashboard'), sub: t('sub_dash') },
     inventory: { title: t('inventory'), sub: t('sub_inv') },
@@ -3297,6 +3473,7 @@ export default function DialloPOS() {
       { id: 2, employeeId: 3, name: 'Awa Sow', role: 'Cashier', clockIn: new Date(Date.now() - 26 * 3600e3).toISOString(), clockOut: new Date(Date.now() - 18 * 3600e3).toISOString() },
     ],
     settings: {},
+    categories: CATEGORIES.filter(c => c.id !== 'all').map(c => ({ id: c.id, label: c.id })),
   };
 
   return (
@@ -3466,10 +3643,22 @@ function DialloPOSShell({ titles }) {
   // there's no URL-based routing in this app, so keeping both this default
   // and the nav filter in sync is what actually makes the view unreachable.
   const onHandheld = isHandheldUA(navigator.userAgent);
-  const firstView = (c) => ['pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'shifts']
+  const firstView = (c) => ['home', 'pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'shifts']
     .find(k => c[k] && (k !== 'shifts' || !onHandheld)) || (onHandheld ? 'pos' : 'shifts');
   const [view, setView] = useState(() => firstView(can));
   const [mobileNav, setMobileNav] = useState(false);
+  // Desktop-only icon-rail mode for the sidebar — remembered across reloads.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('diallo_sidebar_collapsed') === '1'; } catch { return false; }
+  });
+  const toggleCollapsed = () => setCollapsed(c => {
+    try { localStorage.setItem('diallo_sidebar_collapsed', !c ? '1' : '0'); } catch {}
+    return !c;
+  });
+  // Set when a category box on the Home page is clicked, so Checkout opens
+  // already filtered to it — cleared as soon as Checkout reads it, so
+  // navigating to Checkout any other way still starts unfiltered.
+  const [pendingCategory, setPendingCategory] = useState(null);
   // If the current role loses access to the active view (or it's Shifts on a
   // handheld device), fall back to its first allowed view.
   React.useEffect(() => { if (!can[view] || (view === 'shifts' && onHandheld)) setView(firstView(can)); }, [can, view]);
@@ -3505,10 +3694,18 @@ function DialloPOSShell({ titles }) {
       {/* Mobile backdrop when the sidebar is open */}
       {mobileNav && <div onClick={() => setMobileNav(false)} className="fixed inset-0 bg-stone-900/40 z-30 lg:hidden" />}
 
-      <Sidebar view={view} setView={go} mobileNav={mobileNav} closeNav={() => setMobileNav(false)} />
+      <Sidebar view={view} setView={go} mobileNav={mobileNav} closeNav={() => setMobileNav(false)} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titles[view].title} subtitle={subtitleFor(view)} onMenu={() => setMobileNav(true)} />
-        {view === 'pos' && (can.pos ? <POSView /> : <AccessDenied feature="Checkout" />)}
+        {view === 'home' && (can.home ? (
+          <HomeView
+            onCheckout={() => go('pos')}
+            onSelectCategory={(cat) => { setPendingCategory(cat); go('pos'); }}
+          />
+        ) : <AccessDenied feature="Home" />)}
+        {view === 'pos' && (can.pos ? (
+          <POSView initialCategory={pendingCategory} onCategoryConsumed={() => setPendingCategory(null)} />
+        ) : <AccessDenied feature="Checkout" />)}
         {view === 'dashboard' && guarded('dashboard', 'Dashboard & Financials', DashboardView)}
         {view === 'inventory' && guarded('inventory', 'Inventory', InventoryView)}
         {view === 'customers' && guarded('customers', 'Customers', CustomersView)}
