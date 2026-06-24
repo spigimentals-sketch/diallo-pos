@@ -327,7 +327,8 @@ export function ProductForm({ open, onClose, initial }) {
   const [autoGenerateSku, setAutoGenerateSku] = useState(false);
   const [addingCat, setAddingCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
-  useEffect(() => { setForm(initial || blank); setAutoGenerateSku(false); setAddingCat(false); setNewCatName(''); }, [initial, open]);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  useEffect(() => { setForm(initial || blank); setAutoGenerateSku(false); setAddingCat(false); setNewCatName(''); setShowEmojiPicker(false); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
   const categoryOptions = (liveCategories?.length ? liveCategories : CATS.map(c => ({ id: c, label: c })))
     .map(c => ({ value: c.id, label: c.label }));
@@ -372,7 +373,67 @@ export function ProductForm({ open, onClose, initial }) {
         toast('Unable to open print window. Please allow popups and try again.', 'error');
         return;
       }
-      popup.document.write(`<!doctype html><html><head><title>Print barcode</title><style>body{margin:0;padding:24px;font-family:Arial,sans-serif;color:#111;background:#fff} .label{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh} .label img{max-width:100%;height:auto;}</style></head><body><div class="label"><img src="${dataUrl}" alt="Barcode" /></div><script>window.onload = () => { window.print(); };</script></body></html>`);
+      // Branded preview to look at before printing — but the @media print
+      // block strips all of that chrome back to just the bare barcode image
+      // at the top-left of the page, since a thermal label printer needs
+      // the scannable bars, not a colored card around them.
+      popup.document.write(`<!doctype html>
+<html>
+<head>
+<title>Product label — ${(form.name || form.sku).replace(/</g, '&lt;')}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; padding: 32px;
+    font-family: 'Plus Jakarta Sans', system-ui, Arial, sans-serif;
+    background: linear-gradient(135deg, #fafaf9 0%, #ffffff 55%, #ecfdf5 100%);
+    color: #1c1917;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-mark {
+    width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+    background: linear-gradient(135deg, #059669, #047857, #064e3b);
+    box-shadow: 0 6px 14px -4px rgba(6,78,59,.35);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 18px; font-family: Georgia, serif;
+  }
+  .brand-name { font-family: Georgia, serif; font-weight: 600; font-size: 18px; line-height: 1; color: #1c1917; }
+  .brand-sub { font-size: 9px; letter-spacing: .15em; text-transform: uppercase; color: #78716c; margin-top: 2px; }
+  .eyebrow { font-size: 11px; letter-spacing: .15em; text-transform: uppercase; color: #047857; font-weight: 600; }
+  .card {
+    background: #fff; border: 1px solid #e7e5e4; border-radius: 20px;
+    box-shadow: 0 16px 40px -16px rgba(28,25,23,.18);
+    padding: 28px 32px; display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  .card img { max-width: 100%; height: auto; }
+  .btn {
+    border: none; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 600;
+    padding: 12px 28px; border-radius: 12px; color: #fff;
+    background: linear-gradient(135deg, #047857, #064e3b);
+    box-shadow: 0 8px 20px -8px rgba(6,78,59,.45);
+  }
+  .btn:hover { filter: brightness(1.05); }
+  @media print {
+    body { background: #fff; min-height: 0; padding: 0; align-items: flex-start; }
+    .brand, .eyebrow, .btn { display: none; }
+    .card { border: none; box-shadow: none; border-radius: 0; padding: 0; }
+  }
+</style>
+</head>
+<body>
+  <div class="brand">
+    <div class="brand-mark">D</div>
+    <div>
+      <div class="brand-name">Diallo</div>
+      <div class="brand-sub">Point of Sale</div>
+    </div>
+  </div>
+  <div class="eyebrow">Product label preview</div>
+  <div class="card"><img src="${dataUrl}" alt="Barcode for ${(form.sku || '').replace(/</g, '&lt;')}" /></div>
+  <button class="btn" onclick="window.print()">Print label</button>
+</body>
+</html>`);
       popup.document.close();
     } catch (error) {
       toast(error.message || 'Failed to generate barcode.', 'error');
@@ -475,18 +536,27 @@ export function ProductForm({ open, onClose, initial }) {
       <Field label="Name (FR)"><Input value={form.name_fr} onChange={set('name_fr')} /></Field>
 
       <Field label="Icon (shown when there's no photo)">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2">
           <div className="w-10 h-10 rounded-lg bg-stone-100 border border-stone-200 flex items-center justify-center text-xl flex-shrink-0">{form.emoji || '📦'}</div>
           <Input value={form.emoji} onChange={set('emoji')} placeholder="Pick below, or type/paste any emoji" />
+          <button type="button" onClick={() => setShowEmojiPicker((v) => !v)}
+            className="px-3 py-2 rounded-lg border border-stone-200 text-xs font-medium text-stone-600 hover:bg-stone-50 flex-shrink-0 whitespace-nowrap">
+            {showEmojiPicker ? 'Hide' : 'Choose'}
+          </button>
         </div>
-        <div className="grid grid-cols-10 gap-1 p-2 border border-stone-200 rounded-lg max-h-28 overflow-y-auto">
-          {PRODUCT_EMOJIS.map((em) => (
-            <button key={em} type="button" onClick={() => setForm(f => ({ ...f, emoji: em }))}
-              className={`text-lg w-7 h-7 rounded-md flex items-center justify-center hover:bg-stone-100 ${form.emoji === em ? 'bg-emerald-100 ring-2 ring-emerald-500' : ''}`}>
-              {em}
-            </button>
-          ))}
-        </div>
+        {/* Collapsed by default — it's a couple dozen buttons that would
+            otherwise eat a third of the form's height for something most
+            edits never touch. Picking one closes it again automatically. */}
+        {showEmojiPicker && (
+          <div className="grid grid-cols-10 gap-1 p-2 mt-2 border border-stone-200 rounded-lg max-h-28 overflow-y-auto">
+            {PRODUCT_EMOJIS.map((em) => (
+              <button key={em} type="button" onClick={() => { setForm(f => ({ ...f, emoji: em })); setShowEmojiPicker(false); }}
+                className={`text-lg w-7 h-7 rounded-md flex items-center justify-center hover:bg-stone-100 ${form.emoji === em ? 'bg-emerald-100 ring-2 ring-emerald-500' : ''}`}>
+                {em}
+              </button>
+            ))}
+          </div>
+        )}
       </Field>
 
       <div className="grid grid-cols-2 gap-3">

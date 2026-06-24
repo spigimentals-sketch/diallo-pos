@@ -2,6 +2,9 @@
 import React, { useState, useMemo, useContext, createContext, useEffect, useRef } from 'react';
 import api, { imageUrl } from './api.js';
 import { openCustomerDisplay, CHANNEL_NAME } from './customerDisplay.js';
+// Loaded on demand (see ClockInCameraModal) — face-api.js drags in
+// TensorFlow.js, which roughly doubles the JS bundle. Nothing else in the
+// app needs it, so it shouldn't cost every page load just to sit unused.
 import {
   ToastProvider, useToast, DataProvider, useData, Modal, Field, Input,
   ProductForm, SupplierForm, UserForm, POForm,
@@ -848,7 +851,12 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
 // Barcode scan box. A USB/Bluetooth scanner acts as a keyboard: it types the
 // code into the focused field and presses Enter. This modal keeps an input
 // focused so the cashier can scan items one after another; manual typing works too.
-const ScanModal = ({ open, onClose, onScan }) => {
+const ScanModal = ({
+  open, onClose, onScan,
+  title = 'Scan barcode',
+  description = "Point your barcode scanner and scan an item — it adds to the cart automatically. You can also type a product's SKU/barcode and press Enter.",
+  tip = 'Tip: most USB barcode scanners work instantly — no setup needed. Keep this box open to scan several items in a row.',
+}) => {
   const inputRef = useRef(null);
   const [code, setCode] = useState('');
   useEffect(() => {
@@ -856,11 +864,8 @@ const ScanModal = ({ open, onClose, onScan }) => {
   }, [open]);
   const submit = () => { if (onScan(code)) setCode(''); else setCode(''); inputRef.current?.focus(); };
   return (
-    <Modal open={open} onClose={onClose} title="Scan barcode">
-      <p className="text-sm text-stone-600 mb-3">
-        Point your barcode scanner and scan an item — it adds to the cart automatically.
-        You can also type a product's SKU/barcode and press Enter.
-      </p>
+    <Modal open={open} onClose={onClose} title={title}>
+      <p className="text-sm text-stone-600 mb-3">{description}</p>
       <div className="flex items-center gap-2">
         <Scan size={18} className="text-emerald-700 flex-shrink-0" />
         <input
@@ -871,7 +876,7 @@ const ScanModal = ({ open, onClose, onScan }) => {
           placeholder="Scan or type code, then Enter"
           className="flex-1 px-3 py-2.5 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
       </div>
-      <p className="text-xs text-stone-400 mt-3">Tip: most USB barcode scanners work instantly — no setup needed. Keep this box open to scan several items in a row.</p>
+      {tip && <p className="text-xs text-stone-400 mt-3">{tip}</p>}
     </Modal>
   );
 };
@@ -1616,6 +1621,7 @@ const InventoryView = () => {
 const ProductsPanel = () => {
   const { t } = useT();
   const { can } = useRole();
+  const { toast } = useToast();
   const { products: liveProducts, online, settings } = useData();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
@@ -1624,6 +1630,7 @@ const ProductsPanel = () => {
   const [filter, setFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [scanOpen, setScanOpen] = useState(false);
   const filtered = products.filter(p => {
     if (filter === 'low' && p.stock >= lowStockThreshold) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
@@ -1636,6 +1643,25 @@ const ProductsPanel = () => {
   };
   const openAdd = () => { setEditing(null); setModalOpen(true); };
   const openEdit = (p) => { setEditing(p); setModalOpen(true); };
+  // A manufacturer's printed barcode is just a string of digits like any
+  // other SKU — if it's already on a product, scanning it again is someone
+  // restocking, so open that product to edit; if it's new, open Add product
+  // pre-filled with the barcode as the SKU so the rest just needs filling in.
+  const handleScanToAdd = (raw) => {
+    const code = (raw || '').trim();
+    if (!code) return false;
+    setScanOpen(false);
+    const match = products.find(p => (p.sku || '').toLowerCase() === code.toLowerCase());
+    if (match) {
+      setEditing(match);
+      toast(`Barcode matches an existing product — editing "${match.name}"`, 'info');
+    } else {
+      setEditing({ name: '', name_fr: '', category: categoryList[0]?.id || 'cosmetics', price: 0, cost: 0, stock: 0, sku: code, emoji: '📦', image: null });
+      toast('New barcode — fill in the product details', 'info');
+    }
+    setModalOpen(true);
+    return true;
+  };
   const stockValue = products.reduce((sum, p) => sum + p.price * p.stock, 0);
   const lowStockCount = products.filter(p => p.stock > 0 && p.stock < lowStockThreshold).length;
   const outOfStockCount = products.filter(p => p.stock === 0).length;
@@ -1667,6 +1693,11 @@ const ProductsPanel = () => {
           <button onClick={exportProducts} className="sm:ml-auto order-3 flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
             <Download size={14} /> {t('export')}
           </button>
+          {can.editInventory && (
+            <button onClick={() => setScanOpen(true)} className="order-4 flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-stone-200 text-stone-700 rounded-lg hover:bg-stone-50">
+              <Scan size={14} /> Scan to add
+            </button>
+          )}
           {can.editInventory && (
             <button onClick={openAdd} className="order-4 flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
               <Plus size={14} /> {t('add_product')}
@@ -1732,6 +1763,10 @@ const ProductsPanel = () => {
         </div>
       </div>
       <ProductForm open={modalOpen} onClose={() => setModalOpen(false)} initial={editing} />
+      <ScanModal open={scanOpen} onClose={() => setScanOpen(false)} onScan={handleScanToAdd}
+        title="Scan to add product"
+        description="Scan a manufacturer's barcode with a USB scanner, or type it and press Enter. If it's new, you'll fill in the product details next; if it already exists, you'll edit that product."
+        tip="" />
     </>
   );
 };
@@ -3124,17 +3159,39 @@ const SettingsView = () => {
 // it gets uploaded and attached to the new shift so a manager can check it
 // later, the way fingerprint verification was meant to but couldn't
 // reliably do across domains.
+//
+// Before the capture button unlocks, a lightweight client-side liveness
+// check (see liveness.js) requires seeing a face and a blink during this
+// session — stops someone just holding up a printed photo. It's a free,
+// in-browser deterrent, not the hard guarantee a paid liveness vendor would
+// give; a video replay of a blinking person would still pass.
+const LIVENESS_POLL_MS = 200;
+const LIVENESS_WINDOW_MS = 2000;
+
 const ClockInCameraModal = ({ open, onClose, onCapture }) => {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const livenessTimerRef = useRef(null);
+  const earHistoryRef = useRef([]);
+  const blinkVerifiedRef = useRef(false);
   const [error, setError] = useState('');
   const [capturing, setCapturing] = useState(false);
+  // loading-model | no-face | watching | verified | unavailable
+  const [livenessPhase, setLivenessPhase] = useState('loading-model');
+
+  const stopLivenessLoop = () => {
+    clearInterval(livenessTimerRef.current);
+    livenessTimerRef.current = null;
+    earHistoryRef.current = [];
+    blinkVerifiedRef.current = false;
+  };
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setError('');
     setCapturing(false);
+    setLivenessPhase('loading-model');
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
       .then((stream) => {
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
@@ -3142,16 +3199,50 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
         if (videoRef.current) videoRef.current.srcObject = stream;
       })
       .catch(() => setError('Camera access is required to clock in — allow camera permission and try again.'));
+
+    // Dynamically imported — face-api.js pulls in TensorFlow.js, which
+    // roughly doubles the JS bundle, so it's only fetched when this modal
+    // actually opens instead of costing every page load.
+    import('./liveness.js')
+      .then((liveness) => liveness.loadFaceModels().then(() => liveness))
+      .then((liveness) => {
+        if (cancelled) return;
+        setLivenessPhase('no-face');
+        livenessTimerRef.current = setInterval(async () => {
+          const video = videoRef.current;
+          if (!video || video.readyState < 2) return;
+          let ear = null;
+          try { ear = await liveness.detectFaceEAR(video); } catch { /* transient — try again next tick */ }
+          if (cancelled) return;
+          if (ear == null) {
+            setLivenessPhase((p) => (p === 'verified' ? 'verified' : 'no-face'));
+            return;
+          }
+          const now = Date.now();
+          const hist = earHistoryRef.current;
+          hist.push({ t: now, ear });
+          while (hist.length && now - hist[0].t > LIVENESS_WINDOW_MS) hist.shift();
+          if (!blinkVerifiedRef.current) {
+            const recentMin = Math.min(...hist.map((h) => h.ear));
+            if (recentMin < liveness.EAR_CLOSED && ear > liveness.EAR_OPEN) blinkVerifiedRef.current = true;
+          }
+          setLivenessPhase(blinkVerifiedRef.current ? 'verified' : 'watching');
+        }, LIVENESS_POLL_MS);
+      })
+      .catch(() => { if (!cancelled) setLivenessPhase('unavailable'); });
+
     return () => {
       cancelled = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      stopLivenessLoop();
     };
   }, [open]);
 
   const handleClose = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    stopLivenessLoop();
     onClose();
   };
 
@@ -3167,8 +3258,19 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
     const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    stopLivenessLoop();
     onCapture(dataUrl);
   };
+
+  const livenessMessage = {
+    'loading-model': { text: 'Loading face check…', tone: 'stone' },
+    'no-face': { text: 'Position your face in the frame', tone: 'amber' },
+    'watching': { text: 'Blink to verify it’s really you', tone: 'amber' },
+    'verified': { text: 'Verified — you can capture now', tone: 'emerald' },
+    'unavailable': { text: 'Face check unavailable — check your connection and reopen this dialog', tone: 'rose' },
+  }[livenessPhase];
+
+  const canCapture = !error && !capturing && livenessPhase === 'verified';
 
   if (!open) return null;
   return (
@@ -3181,13 +3283,23 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
         {error ? (
           <div className="text-sm text-rose-600 py-8 text-center">{error}</div>
         ) : (
-          <div className="rounded-xl overflow-hidden bg-stone-900 aspect-square mb-4">
-            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
-          </div>
+          <>
+            <div className="rounded-xl overflow-hidden bg-stone-900 aspect-square mb-3 relative">
+              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
+            </div>
+            <div className={`flex items-center gap-2 text-xs font-medium mb-4 px-3 py-2 rounded-lg ${
+              livenessMessage.tone === 'emerald' ? 'bg-emerald-50 text-emerald-700' :
+              livenessMessage.tone === 'rose' ? 'bg-rose-50 text-rose-700' :
+              livenessMessage.tone === 'amber' ? 'bg-amber-50 text-amber-700' : 'bg-stone-100 text-stone-500'
+            }`}>
+              {livenessPhase === 'verified' ? <CheckCircle2 size={14} className="flex-shrink-0" /> : <AlertTriangle size={14} className="flex-shrink-0" />}
+              {livenessMessage.text}
+            </div>
+          </>
         )}
         <div className="flex gap-2">
           <button onClick={handleClose} className="flex-1 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-100 rounded-lg">Cancel</button>
-          <button onClick={capture} disabled={!!error || capturing}
+          <button onClick={capture} disabled={!canCapture}
             className="flex-1 py-2.5 bg-emerald-900 text-white rounded-lg text-sm font-medium hover:bg-emerald-800 disabled:opacity-50 flex items-center justify-center gap-2">
             <Camera size={15} /> Capture & clock in
           </button>
