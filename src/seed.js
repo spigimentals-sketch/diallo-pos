@@ -40,7 +40,7 @@ const EMPLOYEES = [
 ];
 
 const DEFAULT_SETTINGS = {
-  businessName: 'Diallo Supermarché', currency: 'XAF', timezone: 'Africa/Douala', dateFormat: 'DD/MM/YYYY',
+  businessName: 'DIALLO Supermarché', currency: 'XAF', timezone: 'Africa/Douala', dateFormat: 'DD/MM/YYYY',
   address: 'Avenue Kennedy, Centre-Ville, Yaoundé', phone: '+237 6 77 00 00 00', email: 'contact@diallo.cm',
   website: 'www.diallo.cm', rccm: 'RC/YAO/2024/B/01234', niu: 'P012345678901G',
   receiptHeader: 'DIALLO Supermarché — Merci de votre visite', receiptFooter: 'Tous les retours sous 7 jours avec ticket de caisse',

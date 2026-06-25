@@ -340,4 +340,23 @@ try {
   console.warn('categories backfill skipped:', e.message);
 }
 
+// One-time correction: the seeded business name used to read "Diallo
+// Supermarché" (only the company name capitalized like a regular word).
+// Brand style is now "DIALLO" in caps with "Supermarché" in normal word
+// case. Only overwrites it if it's still exactly the old default — a shop
+// that already customized this in Settings keeps whatever they typed.
+try {
+  const row = db.prepare('SELECT json FROM settings WHERE id=1').get();
+  if (row) {
+    const parsed = JSON.parse(row.json);
+    if (parsed.businessName === 'Diallo Supermarché') {
+      parsed.businessName = 'DIALLO Supermarché';
+      db.prepare('UPDATE settings SET json=? WHERE id=1').run(JSON.stringify(parsed));
+      console.log('• Migrated: businessName casing to "DIALLO Supermarché"');
+    }
+  }
+} catch (e) {
+  console.warn('businessName casing migration skipped:', e.message);
+}
+
 export default db;
