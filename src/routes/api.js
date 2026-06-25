@@ -530,8 +530,26 @@ r.post('/maintenance/clear-data', requireAuth, requireRole('admin'), h((req, res
 // suppliers, expenses, employees, and user accounts are untouched, so this
 // is safe to use to start a fresh reporting period without losing the
 // shop's actual catalog/roster data.
+//
+// Deleting the order rows alone isn't enough: checkout also writes side
+// effects directly onto products.stock (decremented) and customers.spent/
+// visits (incremented) at the time of sale, outside the order_items ledger.
+// Erasing the ledger without undoing those leaves inventory looking sold-out
+// and loyalty stats looking active from sales that, as far as the app is now
+// concerned, never happened — i.e. exactly the stale "previous sales still
+// have an effect" bug this reset is supposed to fix. So before deleting,
+// every sold qty is credited back to its product's stock, and every
+// customer's spent/visits are zeroed out.
 r.post('/maintenance/clear-activity', requireAuth, requireRole('admin'), h((req, res) => {
   const tx = db.transaction(() => {
+    const soldByProduct = db.prepare(
+      'SELECT productId, SUM(qty) AS qty FROM order_items WHERE productId IS NOT NULL GROUP BY productId'
+    ).all();
+    const restock = db.prepare('UPDATE products SET stock = stock + ? WHERE id=?');
+    for (const row of soldByProduct) restock.run(row.qty, row.productId);
+
+    db.prepare('UPDATE customers SET spent = 0, visits = 0').run();
+
     for (const tbl of ['order_items', 'orders', 'stock_movements', 'shifts']) {
       db.prepare(`DELETE FROM ${tbl}`).run();
     }
