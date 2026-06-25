@@ -50,6 +50,7 @@ export const api = {
   updateProduct: (id, p) => req('PUT', `/products/${id}`, p),
   deleteProduct: (id) => req('DELETE', `/products/${id}`),
   uploadImage: (filename, dataUrl) => req('POST', '/upload', { filename, dataUrl }),
+  uploadDocument: (filename, dataUrl) => req('POST', '/upload-document', { filename, dataUrl }),
   // categories
   getCategories: () => req('GET', '/categories'),
   createCategory: (label) => req('POST', '/categories', { label }),
@@ -97,6 +98,7 @@ export const api = {
   zReport: (date) => req('GET', `/reports/z?date=${date}`),
   pnlReport: (from, to) => req('GET', `/reports/pnl?from=${from}&to=${to}`),
   pnlTrend: (months = 6) => req('GET', `/reports/pnl-trend?months=${months}`),
+  breakevenReport: () => req('GET', '/reports/breakeven'),
   // expenses
   getExpenses: () => req('GET', '/expenses'),
   createExpense: (e) => req('POST', '/expenses', e),

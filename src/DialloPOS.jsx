@@ -23,7 +23,7 @@ import {
   ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
   Globe, Building, Hash, Percent, ShieldCheck, BellRing,
   Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu, Camera, Monitor, Home,
-  PanelLeftClose, PanelLeftOpen
+  PanelLeftClose, PanelLeftOpen, MessageCircle
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
@@ -859,10 +859,20 @@ const ScanModal = ({
 }) => {
   const inputRef = useRef(null);
   const [code, setCode] = useState('');
+  const { products: liveProducts, online } = useData();
+  const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   useEffect(() => {
     if (open) { setCode(''); setTimeout(() => inputRef.current?.focus(), 50); }
   }, [open]);
-  const submit = () => { if (onScan(code)) setCode(''); else setCode(''); inputRef.current?.focus(); };
+  const submit = (value = code) => { if (onScan(value)) setCode(''); else setCode(''); inputRef.current?.focus(); };
+  // A hardware scanner types the whole code in one burst and hits Enter
+  // before this ever has a chance to render — these suggestions are really
+  // only seen by someone typing by hand, to save them finishing a SKU they
+  // can already recognize or to catch one that already exists.
+  const q = code.trim().toLowerCase();
+  const suggestions = q.length >= 2
+    ? products.filter(p => (p.sku || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q)).slice(0, 6)
+    : [];
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <p className="text-sm text-stone-600 mb-3">{description}</p>
@@ -876,6 +886,23 @@ const ScanModal = ({
           placeholder="Scan or type code, then Enter"
           className="flex-1 px-3 py-2.5 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
       </div>
+      {suggestions.length > 0 && (
+        <div className="mt-2 border border-stone-200 rounded-lg overflow-hidden divide-y divide-stone-100 max-h-56 overflow-y-auto">
+          {suggestions.map((p) => (
+            <button key={p.id} type="button" onClick={() => submit(p.sku)}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-stone-50 text-left">
+              <div className="w-8 h-8 rounded-lg bg-stone-100 flex items-center justify-center text-base flex-shrink-0 overflow-hidden">
+                {p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : (p.emoji || '📦')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-stone-900 truncate">{p.name}</div>
+                <div className="text-xs text-stone-400 font-mono">{p.sku}</div>
+              </div>
+              <div className="text-sm text-emerald-900 flex-shrink-0">{fmt(p.price)}</div>
+            </button>
+          ))}
+        </div>
+      )}
       {tip && <p className="text-xs text-stone-400 mt-3">{tip}</p>}
     </Modal>
   );
@@ -2732,6 +2759,212 @@ const SettingsCard = ({ title, desc, children }) => (
   </div>
 );
 
+// WhatsApp can't be made to auto-send a file into someone's DM from a web
+// app without paid Business API access and pre-approved templates — see the
+// conversation this came out of. This builds a personalized PDF per
+// employee and a wa.me link pre-filled with a message containing a link to
+// it (wa.me can only pre-fill text, never attach a file); the admin still
+// has to click "Send" once per person — there's no way around that part.
+const WhatsAppNotifyModal = ({ open, onClose, users }) => {
+  const { shifts: liveShifts } = useData();
+  const { toast } = useToast();
+  const [step, setStep] = useState(1);
+  const [msgType, setMsgType] = useState('payslip');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [noticeTitle, setNoticeTitle] = useState('');
+  const [noticeBody, setNoticeBody] = useState('');
+  const [selected, setSelected] = useState({});
+  const [generated, setGenerated] = useState([]);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setStep(1);
+    setGenerated([]);
+    setGenerating(false);
+    const today = new Date();
+    setFrom(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`);
+    setTo(today.toISOString().slice(0, 10));
+    setNoticeTitle('');
+    setNoticeBody('');
+    const sel = {};
+    users.forEach((u) => { if (u.whatsapp) sel[u.id] = true; });
+    setSelected(sel);
+  }, [open]); // eslint-disable-line
+
+  const hoursForUser = (userId) => (liveShifts || [])
+    .filter((s) => String(s.employeeId) === String(userId) && (s.clockIn || '').slice(0, 10) >= from && (s.clockIn || '').slice(0, 10) <= to)
+    .reduce((sum, s) => sum + ((s.clockOut ? new Date(s.clockOut) : new Date()) - new Date(s.clockIn)) / 3600000, 0);
+
+  // wa.me wants digits only, country code included, no leading +/0/spaces.
+  const normalizePhone = (raw) => (raw || '').replace(/[^\d]/g, '').replace(/^0+/, '');
+
+  const buildPdf = async (u) => {
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const margin = 56;
+    doc.setFillColor(4, 120, 87);
+    doc.rect(0, 0, 595, 90, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text('Diallo Supermarché', margin, 50);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    doc.text(msgType === 'payslip' ? 'Payslip' : 'Notice', margin, 70);
+
+    let y = 130;
+    doc.setTextColor(28, 25, 23);
+    doc.setFontSize(15);
+    doc.setFont('helvetica', 'bold');
+    doc.text(u.name, margin, y);
+    y += 26;
+    doc.setFontSize(11);
+
+    if (msgType === 'payslip') {
+      const hours = hoursForUser(u.id);
+      const rate = Number(u.hourlyRate) || 0;
+      const total = Math.round(hours * rate);
+      doc.setFont('helvetica', 'normal');
+      [
+        `Period: ${from} to ${to}`,
+        `Role: ${u.role}`,
+        `Hours worked: ${hours.toFixed(1)}`,
+        `Hourly rate: ${rate.toLocaleString()} FCFA`,
+      ].forEach((line) => { doc.text(line, margin, y); y += 20; });
+      y += 10;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text(`Total pay: ${total.toLocaleString()} FCFA`, margin, y);
+    } else {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text(noticeTitle || 'Notice', margin, y);
+      y += 22;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      doc.text(doc.splitTextToSize(noticeBody || '', 595 - margin * 2), margin, y);
+    }
+    return doc;
+  };
+
+  const pdfToDataUrl = (doc) => new Promise((resolve, reject) => {
+    const blob = doc.output('blob');
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read generated PDF'));
+    reader.readAsDataURL(blob);
+  });
+
+  const eligible = users.filter((u) => selected[u.id] && u.whatsapp);
+
+  const generate = async () => {
+    if (msgType === 'notice' && !noticeBody.trim()) { toast('Write the notice message first', 'error'); return; }
+    if (eligible.length === 0) { toast('Select at least one employee with a WhatsApp number', 'error'); return; }
+    setGenerating(true);
+    const results = [];
+    for (const u of eligible) {
+      try {
+        const doc = await buildPdf(u);
+        const dataUrl = await pdfToDataUrl(doc);
+        const { path } = await api.uploadDocument(`${msgType}-${u.name}`, dataUrl);
+        const pdfUrl = `${window.location.origin}${path}`;
+        const text = msgType === 'payslip'
+          ? `Hello ${u.name}, here is your payslip for ${from} to ${to}: ${pdfUrl}`
+          : `Hello ${u.name}, ${noticeTitle ? noticeTitle + ' — ' : ''}please see: ${pdfUrl}`;
+        results.push({ user: u, pdfUrl, waLink: `https://wa.me/${normalizePhone(u.whatsapp)}?text=${encodeURIComponent(text)}` });
+      } catch (e) {
+        toast(`Could not generate a PDF for ${u.name}: ${e.message}`, 'error');
+      }
+    }
+    setGenerated(results);
+    setGenerating(false);
+    if (results.length) setStep(2);
+  };
+
+  const toggleAll = (value) => {
+    const sel = {};
+    users.forEach((u) => { if (u.whatsapp) sel[u.id] = value; });
+    setSelected(sel);
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={step === 1 ? 'Notify via WhatsApp' : 'Send to each employee'}
+      footer={step === 1 ? (
+        <>
+          <GhostBtn onClick={onClose}>Cancel</GhostBtn>
+          <PrimaryBtn onClick={generate} disabled={generating}>{generating ? 'Generating…' : 'Generate'}</PrimaryBtn>
+        </>
+      ) : (
+        <PrimaryBtn onClick={onClose}>Done</PrimaryBtn>
+      )}>
+      {step === 1 ? (
+        <>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {[{ id: 'payslip', label: 'Payslip' }, { id: 'notice', label: 'General notice' }].map((opt) => (
+              <button key={opt.id} type="button" onClick={() => setMsgType(opt.id)}
+                className={`py-2.5 rounded-lg text-sm font-medium border ${msgType === opt.id ? 'border-emerald-900 bg-emerald-900 text-white' : 'border-stone-200 text-stone-600 hover:bg-stone-50'}`}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {msgType === 'payslip' ? (
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <Field label="From"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+              <Field label="To"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+            </div>
+          ) : (
+            <>
+              <Field label="Title"><Input value={noticeTitle} onChange={(e) => setNoticeTitle(e.target.value)} placeholder="e.g. Schedule change" /></Field>
+              <Field label="Message">
+                <textarea value={noticeBody} onChange={(e) => setNoticeBody(e.target.value)} rows={4}
+                  className="w-full px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+              </Field>
+            </>
+          )}
+
+          <div className="flex items-center justify-between mt-4 mb-1">
+            <div className="text-xs font-medium text-stone-600">Send to</div>
+            <div className="flex gap-3 text-xs">
+              <button type="button" onClick={() => toggleAll(true)} className="text-emerald-700 hover:text-emerald-900">Select all</button>
+              <button type="button" onClick={() => toggleAll(false)} className="text-stone-500 hover:text-stone-700">Select none</button>
+            </div>
+          </div>
+          <div className="border border-stone-200 rounded-lg divide-y divide-stone-100 max-h-52 overflow-y-auto">
+            {users.map((u) => (
+              <label key={u.id} className={`flex items-center gap-3 px-3 py-2 ${u.whatsapp ? 'cursor-pointer hover:bg-stone-50' : 'opacity-50'}`}>
+                <input type="checkbox" disabled={!u.whatsapp} checked={!!selected[u.id]}
+                  onChange={(e) => setSelected((s) => ({ ...s, [u.id]: e.target.checked }))}
+                  className="h-4 w-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-stone-900 truncate">{u.name}</div>
+                  <div className="text-xs text-stone-400">{u.whatsapp || 'No WhatsApp number on file'}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm text-stone-600 mb-2">A PDF was generated for each person below. Click "Send" to open WhatsApp with the message ready — you still need to press Send there yourself, once per person.</p>
+          {generated.map(({ user: u, pdfUrl, waLink }) => (
+            <div key={u.id} className="flex items-center gap-3 px-3 py-2 border border-stone-200 rounded-lg">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-stone-900 truncate">{u.name}</div>
+                <a href={pdfUrl} target="_blank" rel="noreferrer" className="text-xs text-emerald-700 hover:underline">View PDF</a>
+              </div>
+              <a href={waLink} target="_blank" rel="noreferrer"
+                className="px-3 py-1.5 bg-emerald-900 text-white rounded-lg text-xs font-medium hover:bg-emerald-800 flex-shrink-0">Send</a>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+};
+
 const SettingsView = () => {
   const { t, lang, setLang } = useT();
   const [tab, setTab] = useState('general');
@@ -2769,6 +3002,7 @@ const SettingsView = () => {
   const { user: me } = useAuth();
   const [savedSnapshot, setSavedSnapshot] = useState(null);
   const [userModal, setUserModal] = useState(false);
+  const [whatsappModal, setWhatsappModal] = useState(false);
 
   // While the admin is looking at the Users tab, keep the online indicators
   // fresh — heartbeats land server-side every 45s, so poll a bit faster.
@@ -3016,6 +3250,9 @@ const SettingsView = () => {
                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
                     {users.filter(u => u.online).length} online
                   </span>
+                  <button onClick={() => setWhatsappModal(true)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-stone-200 text-stone-700 rounded-lg hover:bg-stone-50">
+                    <MessageCircle size={13} /> Notify via WhatsApp
+                  </button>
                   <button onClick={() => { setEditingUser(null); setUserModal(true); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
                     <Plus size={13} /> Add user
                   </button>
@@ -3134,6 +3371,7 @@ const SettingsView = () => {
         </div>
       </div>
       <UserForm open={userModal} onClose={() => setUserModal(false)} initial={editingUser} />
+      <WhatsAppNotifyModal open={whatsappModal} onClose={() => setWhatsappModal(false)} users={users} />
 
       <Modal open={!!pinTarget} onClose={() => setPinTarget(null)} title={pinTarget ? `Reset PIN — ${pinTarget.name}` : 'Reset PIN'}
         footer={<>
@@ -3624,15 +3862,21 @@ const ExpensesView = () => {
   const { toast } = useToast();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [breakeven, setBreakeven] = useState(null);
   const today = new Date().toISOString().slice(0, 10);
-  const blank = { date: today, category: 'Rent', payee: '', amount: '', method: 'cash', note: '' };
+  const blank = { date: today, category: 'Rent', payee: '', amount: '', method: 'cash', note: '', type: 'operating' };
   const [form, setForm] = useState(blank);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const load = async () => {
     if (!online) return;
     setLoading(true);
-    try { setExpenses(await api.getExpenses()); }
+    try {
+      const [list, be] = await Promise.all([api.getExpenses(), api.breakevenReport()]);
+      setExpenses(list);
+      setBreakeven(be);
+    }
     catch (e) { toast(e.message, 'error'); }
     finally { setLoading(false); }
   };
@@ -3645,8 +3889,9 @@ const ExpensesView = () => {
     try {
       const saved = await api.createExpense(payload);
       setExpenses(list => [saved, ...list]);
+      api.breakevenReport().then(setBreakeven).catch(() => {});
       toast('Expense recorded');
-      setForm({ ...blank, date: form.date });
+      setForm({ ...blank, date: form.date, type: form.type });
     } catch (e) {
       if (!e.status) {
         queueMutation('expense', payload);
@@ -3664,15 +3909,17 @@ const ExpensesView = () => {
     try {
       await api.deleteExpense(id);
       setExpenses(list => list.filter(x => x.id !== id));
+      api.breakevenReport().then(setBreakeven).catch(() => {});
       toast('Expense deleted');
     } catch (e) { toast(e.message, 'error'); }
   };
 
-  const total = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const visibleExpenses = typeFilter === 'all' ? expenses : expenses.filter(e => (e.type || 'operating') === typeFilter);
+  const total = visibleExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const exportCsv = () => {
-    const rows = [['Date', 'Category', 'Payee', 'Amount (FCFA)', 'Method', 'Note', 'Recorded by']];
-    expenses.forEach(e => rows.push([e.date, e.category, e.payee, e.amount, e.method, e.note, e.createdBy || '']));
-    rows.push([]); rows.push(['', '', 'TOTAL', total]);
+    const rows = [['Date', 'Type', 'Category', 'Payee', 'Amount (FCFA)', 'Method', 'Note', 'Recorded by']];
+    visibleExpenses.forEach(e => rows.push([e.date, e.type === 'setup' ? 'Setup' : 'Operating', e.category, e.payee, e.amount, e.method, e.note, e.createdBy || '']));
+    rows.push([]); rows.push(['', '', '', 'TOTAL', total]);
     downloadCsv(`expenses-${today}.csv`, rows);
   };
 
@@ -3681,9 +3928,13 @@ const ExpensesView = () => {
       {can.expenses && (
         <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
           <h3 className="font-serif text-lg text-stone-900 mb-4" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Record an expense</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
             <div><label className="block text-[11px] text-stone-500 mb-1">Date</label>
               <input type="date" value={form.date} max={today} onChange={set('date')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Type</label>
+              <select value={form.type} onChange={set('type')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
+                <option value="operating">Operating</option><option value="setup">Setup (one-time)</option>
+              </select></div>
             <div><label className="block text-[11px] text-stone-500 mb-1">Category</label>
               <select value={form.category} onChange={set('category')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
                 {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
@@ -3700,6 +3951,32 @@ const ExpensesView = () => {
           </div>
           <div className="mt-3"><label className="block text-[11px] text-stone-500 mb-1">Note (optional)</label>
             <input value={form.note} onChange={set('note')} placeholder="Description" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+          {form.type === 'setup' && (
+            <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Setup expenses are one-time, pre-opening costs you're trying to recoup — e.g. registration, legal fees, renovation labor.
+              <strong> Don't include anything you still own and could resell</strong> (equipment, vehicles, furniture, property) — those are assets, not sunk costs, and belong under "Operating" or not recorded as an expense at all.
+            </p>
+          )}
+        </div>
+      )}
+
+      {breakeven && breakeven.setupCost > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-stone-900">Break-even on setup costs</h3>
+            {breakeven.brokenEven
+              ? <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-medium">Broken even</span>
+              : <span className="text-xs px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-medium">Not yet broken even</span>}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-3">
+            <div><p className="text-xs text-stone-500">Total setup cost</p><p className="font-semibold text-stone-900">{fmt(breakeven.setupCost)}</p></div>
+            <div><p className="text-xs text-stone-500">Cumulative net profit</p><p className="font-semibold text-stone-900">{fmt(breakeven.cumulativeNetProfit)}</p></div>
+            <div><p className="text-xs text-stone-500">Remaining to break even</p><p className="font-semibold text-rose-700">{fmt(breakeven.remaining)}</p></div>
+            <div><p className="text-xs text-stone-500">Recovered</p><p className="font-semibold text-stone-900">{breakeven.pctRecovered}%</p></div>
+          </div>
+          <div className="w-full h-2 rounded-full bg-stone-100 overflow-hidden">
+            <div className="h-full bg-emerald-700" style={{ width: `${breakeven.pctRecovered}%` }} />
+          </div>
         </div>
       )}
 
@@ -3709,13 +3986,21 @@ const ExpensesView = () => {
             <h3 className="font-semibold text-stone-900">Expenses</h3>
             <p className="text-xs text-stone-500 mt-0.5">Total recorded: <span className="font-medium text-rose-700">{fmt(total)}</span></p>
           </div>
-          <button onClick={exportCsv} className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5"><Download size={13} /> Export CSV</button>
+          <div className="flex items-center gap-2">
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="text-xs px-2.5 py-1.5 border border-stone-200 rounded-lg">
+              <option value="all">All types</option>
+              <option value="operating">Operating only</option>
+              <option value="setup">Setup only</option>
+            </select>
+            <button onClick={exportCsv} className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5"><Download size={13} /> Export CSV</button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-xs text-stone-500 bg-stone-50/60">
               <tr>
                 <th className="text-left font-medium px-5 py-3">Date</th>
+                <th className="text-left font-medium px-5 py-3">Type</th>
                 <th className="text-left font-medium px-5 py-3">Category</th>
                 <th className="text-left font-medium px-5 py-3">Payee</th>
                 <th className="text-left font-medium px-5 py-3">Method</th>
@@ -3724,11 +4009,16 @@ const ExpensesView = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {expenses.length === 0 ? (
-                <tr><td colSpan={can.expenses ? 6 : 5} className="px-5 py-8 text-center text-stone-400">{loading ? 'Loading…' : 'No expenses recorded yet.'}</td></tr>
-              ) : expenses.map(e => (
+              {visibleExpenses.length === 0 ? (
+                <tr><td colSpan={can.expenses ? 7 : 6} className="px-5 py-8 text-center text-stone-400">{loading ? 'Loading…' : 'No expenses recorded yet.'}</td></tr>
+              ) : visibleExpenses.map(e => (
                 <tr key={e.id}>
                   <td className="px-5 py-3 text-stone-600">{e.date}</td>
+                  <td className="px-5 py-3">
+                    {e.type === 'setup'
+                      ? <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800">Setup</span>
+                      : <span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-600">Operating</span>}
+                  </td>
                   <td className="px-5 py-3"><span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-700">{e.category}</span></td>
                   <td className="px-5 py-3 text-stone-700">{e.payee || '—'}{e.note ? <span className="block text-xs text-stone-400">{e.note}</span> : null}</td>
                   <td className="px-5 py-3 text-stone-600 capitalize">{e.method}</td>

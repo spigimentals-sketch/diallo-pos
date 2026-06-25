@@ -647,7 +647,7 @@ export function SupplierForm({ open, onClose, initial }) {
 export function UserForm({ open, onClose, initial }) {
   const { upsertUser } = useData();
   const { toast } = useToast();
-  const blank = { name: '', username: '', role: 'cashier', email: '', store: 'Central', pin: '1234' };
+  const blank = { name: '', username: '', role: 'cashier', email: '', store: 'Central', pin: '1234', whatsapp: '', hourlyRate: 0 };
   const [form, setForm] = useState(initial || blank);
   useEffect(() => { setForm(initial ? { ...initial, pin: '' } : blank); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -678,6 +678,15 @@ export function UserForm({ open, onClose, initial }) {
         <Field label="Role"><SelectInput value={form.role} onChange={set('role')} options={[{ value: 'admin', label: 'Admin' }, { value: 'manager', label: 'Manager' }, { value: 'cashier', label: 'Cashier' }, { value: 'accountant', label: 'Accountant' }]} /></Field>
         <Field label="Store"><Input value={form.store} onChange={set('store')} /></Field>
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="WhatsApp number">
+          <Input value={form.whatsapp || ''} onChange={set('whatsapp')} placeholder="+237 6XX XXX XXX" />
+        </Field>
+        <Field label="Hourly rate (FCFA)">
+          <Input type="number" value={form.hourlyRate || 0} onChange={set('hourlyRate')} />
+        </Field>
+      </div>
+      <p className="text-xs text-stone-400 -mt-1 mb-1">WhatsApp needs the country code (e.g. +237 677001122) — both are used by Settings &gt; Users &gt; "Notify via WhatsApp".</p>
       {!initial?.id
         ? <Field label="Login PIN (4–6 digits)"><Input value={form.pin} onChange={set('pin')} inputMode="numeric" placeholder="1234" /></Field>
         : <p className="text-xs text-stone-400 -mt-1">Use “Reset PIN” in the users table to change this user's PIN.</p>}
@@ -792,6 +801,21 @@ export function LoginScreen() {
   const pick = (u) => { setUsername(u.username || ''); setPin(''); };
   const press = (d) => { if (!busy) setPin(p => (p + d).slice(0, 6)); };
   const back = () => setPin(p => p.slice(0, -1));
+
+  // Lets the PIN be typed on a physical keyboard, not just clicked on the
+  // on-screen keypad — skipped while the username field has focus so its
+  // own typing (and the Enter-to-submit it already wires up) isn't hijacked.
+  useEffect(() => {
+    const handler = (e) => {
+      if (document.activeElement?.tagName === 'INPUT') return;
+      if (busy) return;
+      if (e.key >= '0' && e.key <= '9') { press(e.key); return; }
+      if (e.key === 'Backspace') { back(); return; }
+      if (e.key === 'Enter') { submit(); return; }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [busy, pin, username]);
 
   // The currently-typed user (to show their name nicely), plus everyone else as suggestions.
   const current = staff.find(s => (s.username || '').toLowerCase() === username.trim().toLowerCase());
