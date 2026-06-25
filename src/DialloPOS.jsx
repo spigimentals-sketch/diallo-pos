@@ -483,7 +483,7 @@ export const Logo = ({ size = 'md', subtitle = 'Point of Sale', hideTextClass = 
       </div>
       <div className={hideTextClass}>
         <div className="font-serif text-stone-900 leading-none whitespace-nowrap" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: nameSize }}>
-          Diallo
+          DIALLO
         </div>
         <div className={`text-stone-500 tracking-[0.15em] uppercase mt-0.5 whitespace-nowrap ${size === 'lg' ? 'text-xs' : 'text-[10px]'}`}>{subtitle}</div>
       </div>
@@ -497,7 +497,7 @@ const Sidebar = ({ view, setView, mobileNav, closeNav, collapsed, onToggleCollap
   const { toast } = useToast();
   const { user, logout: authLogout } = useAuth();
   const logout = () => {
-    if (window.confirm('Sign out of Diallo POS?')) { authLogout(); toast('Signed out', 'info'); }
+    if (window.confirm('Sign out of DIALLO POS?')) { authLogout(); toast('Signed out', 'info'); }
   };
   const allNav = [
     { id: 'home', label: t('home') || 'Home', icon: Home },
@@ -2785,7 +2785,7 @@ async function createLetterheadPdf({ docTitle, settings = {} } = {}) {
   // monogram-avatar pattern used for staff initials elsewhere in the app —
   // derived from settings so it follows the configured business name rather
   // than a hardcoded company.
-  const businessName = settings.businessName || 'Diallo Supermarché';
+  const businessName = settings.businessName || 'DIALLO Supermarché';
   const monogram = businessName.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'D';
   const logoSize = 40;
   const logoX = margin;
@@ -3047,7 +3047,7 @@ const SettingsView = () => {
   const { t, lang, setLang } = useT();
   const [tab, setTab] = useState('general');
   const [settings, setSettings] = useState({
-    businessName: 'Diallo Supermarché',
+    businessName: 'DIALLO Supermarché',
     currency: 'XAF',
     timezone: 'Africa/Douala',
     dateFormat: 'DD/MM/YYYY',

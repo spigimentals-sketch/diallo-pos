@@ -425,7 +425,7 @@ export function ProductForm({ open, onClose, initial }) {
   <div class="brand">
     <div class="brand-mark">D</div>
     <div>
-      <div class="brand-name">Diallo</div>
+      <div class="brand-name">DIALLO</div>
       <div class="brand-sub">Point of Sale</div>
     </div>
   </div>
@@ -864,7 +864,7 @@ export function LoginScreen({ lang, setLang }) {
           <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/25 mx-auto mb-3 flex items-center justify-center">
             <ShieldCheck className="text-white" size={26} />
           </div>
-          <h1 className="text-2xl text-white" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Diallo Supermarché</h1>
+          <h1 className="text-2xl text-white" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>DIALLO Supermarché</h1>
           <p className="text-sm text-white/80 mt-1">Sign in to continue</p>
         </div>
 
@@ -919,7 +919,7 @@ export function LoginScreen({ lang, setLang }) {
           </div>
         )}
 
-        <p className="text-center text-white/50 text-xs mt-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>© {new Date().getFullYear()} Diallo Supermarché</p>
+        <p className="text-center text-white/50 text-xs mt-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>© {new Date().getFullYear()} DIALLO Supermarché</p>
       </div>
     </div>
   );

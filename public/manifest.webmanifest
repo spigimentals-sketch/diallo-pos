@@ -1,7 +1,7 @@
 {
-  "name": "Diallo POS",
-  "short_name": "Diallo POS",
-  "description": "Point of sale, inventory and accounting for Diallo Supermarché",
+  "name": "DIALLO POS",
+  "short_name": "DIALLO POS",
+  "description": "Point of sale, inventory and accounting for DIALLO Supermarché",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
