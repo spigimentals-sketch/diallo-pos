@@ -772,7 +772,7 @@ export function AuthProvider({ children }) {
 }
 
 // Login screen: username + PIN, with quick-pick suggestions of other users.
-export function LoginScreen() {
+export function LoginScreen({ lang, setLang }) {
   const { login } = useAuth();
   const { toast } = useToast();
   const [staff, setStaff] = useState([]);
@@ -821,18 +821,54 @@ export function LoginScreen() {
   const current = staff.find(s => (s.username || '').toLowerCase() === username.trim().toLowerCase());
   const others = staff.filter(s => s !== current);
 
+  // Supplied supermarket photo, served from web/public so it's a plain static
+  // asset (not bundled into the JS) — Vite serves anything in public/ at the
+  // site root, so this is just /bg.jpg in both dev and the production build.
+  // It's wide (1244x700, ~16:9) — wider than effectively every real device
+  // viewport, so object-cover always preserves its full height (only the
+  // sides ever get cropped), meaning the blurred aisle-and-produce backdrop
+  // up top and the in-focus wooden counter along the bottom both stay fully
+  // visible on any screen, unlike the previous photo's awkward portrait crop.
+  const BG_IMAGE = '/bg.jpg';
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-stone-100 via-white to-emerald-50 p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-900 mx-auto mb-3 flex items-center justify-center">
+    <div className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden">
+      <img src={BG_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover" />
+      {/* A light overall tint keeps the photo in the brand palette; the radial
+          darkening behind the card is what actually makes the white card and
+          its text legible, without flattening the photo everywhere else. */}
+      <div className="absolute inset-0 bg-emerald-950/15" />
+      {/* vmin-based sizing keeps the glow proportioned to the smaller screen
+          dimension, so it stays a contained vignette behind the card instead
+          of ballooning to cover a tall, narrow phone screen edge-to-edge. */}
+      <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 34vmin 40vmin at center, rgba(4,30,23,0.55), transparent 70%)' }} />
+
+      {/* Language can be chosen before signing in, not just from Settings
+          afterward — it's the same lang/setLang state the rest of the app
+          reads, so picking it here carries through once logged in. */}
+      {setLang && (
+        <div className="absolute top-4 right-4 z-20 flex items-center bg-white/15 backdrop-blur-sm border border-white/25 rounded-lg p-0.5 text-xs font-medium">
+          <button onClick={() => setLang('en')}
+            className={`px-2.5 py-1 rounded-md transition-all ${lang === 'en' ? 'bg-white text-stone-900' : 'text-white/80 hover:text-white'}`}>
+            EN
+          </button>
+          <button onClick={() => setLang('fr')}
+            className={`px-2.5 py-1 rounded-md transition-all ${lang === 'fr' ? 'bg-white text-stone-900' : 'text-white/80 hover:text-white'}`}>
+            FR
+          </button>
+        </div>
+      )}
+
+      <div className="relative z-10 w-full max-w-sm">
+        <div className="text-center mb-6" style={{ textShadow: '0 2px 12px rgba(0,0,0,0.55)' }}>
+          <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/25 mx-auto mb-3 flex items-center justify-center">
             <ShieldCheck className="text-white" size={26} />
           </div>
-          <h1 className="text-2xl text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Diallo Supermarché</h1>
-          <p className="text-sm text-stone-500 mt-1">Sign in to continue</p>
+          <h1 className="text-2xl text-white" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Diallo Supermarché</h1>
+          <p className="text-sm text-white/80 mt-1">Sign in to continue</p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-stone-200 p-6">
+        <div className="bg-white/95 backdrop-blur-md rounded-2xl border border-white/40 p-6 shadow-2xl">
           {/* Username */}
           <label className="block text-xs font-medium text-stone-600 mb-1">Username</label>
           <div className="flex items-center gap-2 mb-3">
@@ -868,13 +904,13 @@ export function LoginScreen() {
         {/* Suggested users — always shown so it's easy to switch accounts */}
         {others.length > 0 && (
           <div className="mt-5">
-            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-medium mb-2 text-center">
+            <div className="text-[11px] uppercase tracking-wider text-white/70 font-medium mb-2 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>
               {current ? 'Switch user' : 'Suggested users'}
             </div>
             <div className="flex flex-wrap justify-center gap-2">
               {others.map((s, i) => (
                 <button key={s.id} onClick={() => pick(s)}
-                  className="flex items-center gap-2 bg-white border border-stone-200 rounded-full pl-1 pr-3 py-1 hover:border-emerald-600 hover:shadow-sm transition">
+                  className="flex items-center gap-2 bg-white/95 backdrop-blur-sm border border-white/40 rounded-full pl-1 pr-3 py-1 hover:border-emerald-600 hover:shadow-sm transition">
                   <span className={`w-6 h-6 rounded-full bg-gradient-to-br ${colors[staff.indexOf(s) % colors.length]} flex items-center justify-center text-white text-[10px] font-semibold`}>{initials(s.name)}</span>
                   <span className="text-xs font-medium text-stone-700 pr-1">{s.name}</span>
                 </button>
@@ -882,6 +918,8 @@ export function LoginScreen() {
             </div>
           </div>
         )}
+
+        <p className="text-center text-white/50 text-xs mt-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>© {new Date().getFullYear()} Diallo Supermarché</p>
       </div>
     </div>
   );

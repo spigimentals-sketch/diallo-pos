@@ -2759,6 +2759,86 @@ const SettingsCard = ({ title, desc, children }) => (
   </div>
 );
 
+// Every PDF the software generates should start here, so they all carry the
+// same branded letterhead instead of each generator inventing its own header.
+// Colors match the brand emerald used everywhere else (sidebar, primary
+// buttons, login) rather than a one-off shade picked per document.
+async function createLetterheadPdf({ docTitle, settings = {} } = {}) {
+  const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 56;
+  const bandHeight = 96;
+
+  // Header band + a warm accent rule under it, echoing the emerald-on-cream
+  // palette used across the app rather than a flat single-color block.
+  doc.setFillColor(6, 78, 59); // emerald-900
+  doc.rect(0, 0, pageWidth, bandHeight, 'F');
+  doc.setFillColor(217, 119, 6); // amber-600
+  doc.rect(0, bandHeight, pageWidth, 3, 'F');
+
+  // Logo mark: a white rounded square with the business's initials, the same
+  // monogram-avatar pattern used for staff initials elsewhere in the app —
+  // derived from settings so it follows the configured business name rather
+  // than a hardcoded company.
+  const businessName = settings.businessName || 'Diallo Supermarché';
+  const monogram = businessName.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'D';
+  const logoSize = 40;
+  const logoX = margin;
+  const logoY = (bandHeight - logoSize) / 2;
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(logoX, logoY, logoSize, logoSize, 8, 8, 'F');
+  doc.setTextColor(6, 78, 59);
+  doc.setFont('times', 'bold');
+  doc.setFontSize(monogram.length > 1 ? 16 : 22);
+  doc.text(monogram, logoX + logoSize / 2, logoY + logoSize / 2 + (monogram.length > 1 ? 5.5 : 7), { align: 'center' });
+
+  // Business name (serif, echoing the Fraunces headings used on-screen —
+  // jsPDF only ships Helvetica/Times/Courier, so Times stands in for it)
+  // plus a contact line built from whatever business details are configured.
+  const textX = logoX + logoSize + 14;
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('times', 'bold');
+  doc.setFontSize(19);
+  doc.text(businessName, textX, bandHeight / 2 - 4);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  const contactBits = [settings.address, settings.phone, settings.email].filter(Boolean).join('   •   ');
+  if (contactBits) doc.text(contactBits, textX, bandHeight / 2 + 14);
+
+  // Document title (e.g. "PAYSLIP"), right-aligned within the band.
+  if (docTitle) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(docTitle.toUpperCase(), pageWidth - margin, bandHeight / 2, { align: 'right' });
+  }
+
+  return { doc, margin, startY: bandHeight + 3 + 40 };
+}
+
+// Stamps a matching footer (registration numbers, generation date, page
+// count) onto every page of a letterhead PDF — called once after all
+// content is drawn, since page count isn't known until then.
+function finishLetterheadPdf(doc, { settings = {} } = {}) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 56;
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    const y = pageHeight - 36;
+    doc.setDrawColor(229, 229, 229);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y - 14, pageWidth - margin, y - 14);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(120, 113, 108);
+    const left = [settings.rccm, settings.niu].filter(Boolean).join('   •   ');
+    if (left) doc.text(left, margin, y);
+    doc.text(`Page ${i} of ${pageCount}   •   Generated ${new Date().toLocaleDateString()}`, pageWidth - margin, y, { align: 'right' });
+  }
+}
+
 // WhatsApp can't be made to auto-send a file into someone's DM from a web
 // app without paid Business API access and pre-approved templates — see the
 // conversation this came out of. This builds a personalized PDF per
@@ -2766,7 +2846,7 @@ const SettingsCard = ({ title, desc, children }) => (
 // it (wa.me can only pre-fill text, never attach a file); the admin still
 // has to click "Send" once per person — there's no way around that part.
 const WhatsAppNotifyModal = ({ open, onClose, users }) => {
-  const { shifts: liveShifts } = useData();
+  const { shifts: liveShifts, settings: liveSettings } = useData();
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [msgType, setMsgType] = useState('payslip');
@@ -2801,20 +2881,13 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
   const normalizePhone = (raw) => (raw || '').replace(/[^\d]/g, '').replace(/^0+/, '');
 
   const buildPdf = async (u) => {
-    const { jsPDF } = await import('jspdf');
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    const margin = 56;
-    doc.setFillColor(4, 120, 87);
-    doc.rect(0, 0, 595, 90, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(20);
-    doc.text('Diallo Supermarché', margin, 50);
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'normal');
-    doc.text(msgType === 'payslip' ? 'Payslip' : 'Notice', margin, 70);
+    const { doc, margin, startY } = await createLetterheadPdf({
+      docTitle: msgType === 'payslip' ? 'Payslip' : 'Notice',
+      settings: liveSettings || {},
+    });
+    const pageWidth = doc.internal.pageSize.getWidth();
 
-    let y = 130;
+    let y = startY;
     doc.setTextColor(28, 25, 23);
     doc.setFontSize(15);
     doc.setFont('helvetica', 'bold');
@@ -2844,8 +2917,9 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
       y += 22;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
-      doc.text(doc.splitTextToSize(noticeBody || '', 595 - margin * 2), margin, y);
+      doc.text(doc.splitTextToSize(noticeBody || '', pageWidth - margin * 2), margin, y);
     }
+    finishLetterheadPdf(doc, { settings: liveSettings || {} });
     return doc;
   };
 
@@ -3846,10 +3920,11 @@ export default function DialloPOS() {
 // Shows the login screen until a valid session exists, then the app.
 function AuthGate({ titles }) {
   const { user, checking } = useAuth();
+  const { lang, setLang } = useT();
   if (checking) {
     return <div className="min-h-screen flex items-center justify-center bg-stone-50 text-stone-400 text-sm">Loading…</div>;
   }
-  if (!user) return <LoginScreen />;
+  if (!user) return <LoginScreen lang={lang} setLang={setLang} />;
   return <DialloPOSShell titles={titles} />;
 }
 
