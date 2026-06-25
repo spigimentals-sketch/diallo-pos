@@ -242,19 +242,23 @@ const useShifts = () => useContext(ShiftContext);
 
 // ============ ROLE / PERMISSIONS ============
 // admin      -> full access (finances, inventory cost/margin, users, settings, reports)
-// manager    -> operations: pos, dashboard, inventory, customers, stores, shifts (no finance/cost)
+// manager    -> operations: dashboard, inventory (edit existing, no new SKUs), customers, stores,
+//               shifts (no finance/cost, no checkout — that's a cashier-till job)
 // cashier    -> pos + own shift only
 // accountant -> read-only finance role: dashboard, inventory (no edit), customers, reports
 //               with cost/margin + accounting, shifts (view), expenses. NO checkout, NO edits.
+// addProducts is split out from editInventory: it gates only onboarding brand-new SKUs
+// ("Add product" / "Scan to add"), so a manager can still fix stock counts or correct an
+// existing listing without being the one who adds new catalog items.
 const ROLE_ACCESS = {
   admin:   { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true,
-             seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
-  manager: { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
-             seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
+             seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, addProducts: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
+  manager: { home: true, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
+             seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, addProducts: false, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
   cashier: { home: true, pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false,
-             seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
+             seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, addProducts: false, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
   accountant: { home: false, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
-             seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
+             seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, addProducts: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
 };
 const RoleContext = createContext(null);
 const useRole = () => useContext(RoleContext);
@@ -1720,12 +1724,12 @@ const ProductsPanel = () => {
           <button onClick={exportProducts} className="sm:ml-auto order-3 flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
             <Download size={14} /> {t('export')}
           </button>
-          {can.editInventory && (
+          {can.addProducts && (
             <button onClick={() => setScanOpen(true)} className="order-4 flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-stone-200 text-stone-700 rounded-lg hover:bg-stone-50">
               <Scan size={14} /> Scan to add
             </button>
           )}
-          {can.editInventory && (
+          {can.addProducts && (
             <button onClick={openAdd} className="order-4 flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-900 text-white rounded-lg hover:bg-emerald-800">
               <Plus size={14} /> {t('add_product')}
             </button>
