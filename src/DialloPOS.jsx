@@ -2828,6 +2828,20 @@ function finishLetterheadPdf(doc, { settings = {} } = {}) {
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 56;
   const pageCount = doc.internal.getNumberOfPages();
+
+  // Signature block — only on the last page, since it signs off the whole
+  // document rather than each individual page.
+  doc.setPage(pageCount);
+  const sigWidth = 160;
+  const sigLineY = pageHeight - 110;
+  doc.setDrawColor(28, 25, 23);
+  doc.setLineWidth(0.75);
+  doc.line(pageWidth - margin - sigWidth, sigLineY, pageWidth - margin, sigLineY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(87, 83, 78);
+  doc.text('Manager', pageWidth - margin - sigWidth, sigLineY + 14);
+
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     const y = pageHeight - 36;
