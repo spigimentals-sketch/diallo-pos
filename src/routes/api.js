@@ -761,16 +761,24 @@ r.get('/reports/pnl-trend', h((req, res) => {
 // ---- Break-even: have we earned back what it cost to set this place up? ----
 // totalSetupCost is every expense ever logged with type='setup'. cumulativeNetProfit
 // is the SAME net-profit math /reports/pnl uses (gross margin minus operating
-// expenses), just over the business's entire history instead of one range —
-// setup costs are deliberately excluded from that subtraction (see the note
-// on /reports/pnl) so they're only ever compared here, once, against profit
-// earned since day one.
+// expenses) — but only counting from the day the OLDEST setup expense was
+// recorded, onward. A store can have months of real sales history before its
+// setup costs ever get logged; counting that pre-existing profit toward
+// "recovering" a cost it never actually paid for would make recovery jump to
+// 100% the instant the cost is entered, which is exactly backwards from what
+// "haven't broken even yet" should mean. Profit only starts counting toward
+// payback once there's an actual setup cost on the books to pay back.
 r.get('/reports/breakeven', h((req, res) => {
   const setupCost = db.prepare("SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE type='setup'").get().amount;
+  const earliestSetupDate = db.prepare("SELECT MIN(date) AS d FROM expenses WHERE type='setup'").get().d;
+  const since = (earliestSetupDate || '9999-12-31') + 'T00:00:00.000Z';
   const margin = db.prepare(
-    `SELECT COALESCE(SUM(oi.price*oi.qty),0) AS revenue, COALESCE(SUM(oi.cost*oi.qty),0) AS cogs FROM order_items oi`
-  ).get();
-  const operatingExpenses = db.prepare("SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE type != 'setup'").get().amount;
+    `SELECT COALESCE(SUM(oi.price*oi.qty),0) AS revenue, COALESCE(SUM(oi.cost*oi.qty),0) AS cogs
+     FROM order_items oi JOIN orders o ON o.id = oi.orderId WHERE o.createdAt >= ?`
+  ).get(since);
+  const operatingExpenses = db.prepare(
+    "SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE type != 'setup' AND date >= ?"
+  ).get(earliestSetupDate || '9999-12-31').amount;
   const cumulativeNetProfit = (margin.revenue - margin.cogs) - operatingExpenses;
   const remaining = Math.max(0, setupCost - cumulativeNetProfit);
   res.json({
