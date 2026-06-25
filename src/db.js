@@ -225,6 +225,10 @@ try {
   if (!ucols.includes('pin_hash')) db.exec('ALTER TABLE users ADD COLUMN pin_hash TEXT');
   if (!ucols.includes('pin_salt')) db.exec('ALTER TABLE users ADD COLUMN pin_salt TEXT');
   if (!ucols.includes('username')) db.exec('ALTER TABLE users ADD COLUMN username TEXT');
+  // whatsapp: for the WhatsApp-notification feature (payslip/notice PDFs).
+  // hourlyRate: used to compute payslip totals from actual shift hours.
+  if (!ucols.includes('whatsapp')) db.exec('ALTER TABLE users ADD COLUMN whatsapp TEXT');
+  if (!ucols.includes('hourlyRate')) db.exec('ALTER TABLE users ADD COLUMN hourlyRate INTEGER DEFAULT 0');
 } catch (e) {
   console.warn('users-column migration skipped:', e.message);
 }
@@ -257,6 +261,20 @@ try {
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_clientId ON expenses(clientId)');
 } catch (e) {
   console.warn('expenses clientId migration skipped:', e.message);
+}
+
+// 'operating' (rent, utilities, salaries — the regular running costs that
+// reduce P&L) vs 'setup' (one-time pre-opening/startup costs the owner is
+// trying to recoup, tracked separately against cumulative net profit
+// instead of distorting any single period's P&L). Existing rows predate
+// this distinction and default to 'operating'.
+try {
+  const expcols = db.prepare('PRAGMA table_info(expenses)').all().map(c => c.name);
+  if (!expcols.includes('type')) {
+    db.exec("ALTER TABLE expenses ADD COLUMN type TEXT NOT NULL DEFAULT 'operating'");
+  }
+} catch (e) {
+  console.warn('expenses type migration skipped:', e.message);
 }
 
 // Per-shift cash reconciliation columns, for accountability at clock-out.

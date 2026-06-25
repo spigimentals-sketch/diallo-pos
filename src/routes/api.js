@@ -43,7 +43,7 @@ const isHandheldUA = (ua = '') => {
 // they correctly fall through to offline rather than throwing.
 const ONLINE_THRESHOLD_MS = 90 * 1000;
 const withOnline = (u) => u && { ...u, online: !!u.lastActive && (Date.now() - Date.parse(u.lastActive)) < ONLINE_THRESHOLD_MS };
-const publicUser = (u) => u && withOnline({ id: u.id, name: u.name, username: u.username, role: u.role, email: u.email, lastActive: u.lastActive, store: u.store });
+const publicUser = (u) => u && withOnline({ id: u.id, name: u.name, username: u.username, role: u.role, email: u.email, lastActive: u.lastActive, store: u.store, whatsapp: u.whatsapp, hourlyRate: u.hourlyRate });
 
 // ---------------- AUTH ----------------
 // Public: accounts to suggest on the login screen (no secrets).
@@ -100,6 +100,20 @@ r.post('/upload', h((req, res) => {
   const base = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[^a-z0-9._-]/gi, '_').slice(0, 40) || 'photo';
   const name = `${Date.now()}-${base}.${ext}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, name), Buffer.from(m[2], 'base64'));
+  res.status(201).json({ path: `/uploads/${name}` });
+}));
+
+// Same idea as /upload, but for PDFs — used by the WhatsApp notification
+// feature so a generated payslip/notice has a real URL to put in the
+// message text (wa.me links can only pre-fill text, never attach a file).
+r.post('/upload-document', requireAuth, h((req, res) => {
+  const { filename = 'document', dataUrl } = req.body || {};
+  if (!dataUrl || !dataUrl.startsWith('data:application/pdf')) throw new Error('dataUrl (base64 PDF) is required');
+  const m = dataUrl.match(/^data:application\/pdf;base64,(.+)$/);
+  if (!m) throw new Error('unsupported document data');
+  const base = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[^a-z0-9._-]/gi, '_').slice(0, 40) || 'document';
+  const name = `${Date.now()}-${base}.pdf`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, name), Buffer.from(m[1], 'base64'));
   res.status(201).json({ path: `/uploads/${name}` });
 }));
 
@@ -255,12 +269,12 @@ r.post('/stock-movements', h((req, res) => {
 
 // ---------------- USERS ----------------
 r.get('/users', h((req, res) => {
-  const rows = db.prepare('SELECT id,name,username,role,email,lastActive,store FROM users ORDER BY id').all();
+  const rows = db.prepare('SELECT id,name,username,role,email,lastActive,store,whatsapp,hourlyRate FROM users ORDER BY id').all();
   res.json(rows.map(withOnline));
 }));
 
 r.post('/users', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
-  const { name, role = 'cashier', email = '', store = '', pin = '1234' } = req.body;
+  const { name, role = 'cashier', email = '', store = '', pin = '1234', whatsapp = '', hourlyRate = 0 } = req.body;
   let { username } = req.body;
   if (!name) throw new Error('name is required');
   if (!/^\d{4,6}$/.test(String(pin))) throw new Error('PIN must be 4–6 digits');
@@ -269,8 +283,8 @@ r.post('/users', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
   let base = username, n = 1;
   while (db.prepare('SELECT 1 FROM users WHERE username=?').get(username)) username = `${base}${++n}`;
   const { hash, salt } = hashPin(pin);
-  const info = db.prepare('INSERT INTO users (name,username,role,email,lastActive,store,pin_hash,pin_salt) VALUES (?,?,?,?,?,?,?,?)')
-    .run(name, username, role, email, null, store, hash, salt);
+  const info = db.prepare('INSERT INTO users (name,username,role,email,lastActive,store,pin_hash,pin_salt,whatsapp,hourlyRate) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(name, username, role, email, null, store, hash, salt, whatsapp, Number(hourlyRate) || 0);
   res.status(201).json(publicUser(db.prepare('SELECT * FROM users WHERE id=?').get(info.lastInsertRowid)));
 }));
 
@@ -278,8 +292,8 @@ r.put('/users/:id', requireAuth, requireRole('admin', 'manager'), h((req, res) =
   const cur = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!cur) throw new Error('user not found');
   const n = { ...cur, ...req.body };
-  db.prepare('UPDATE users SET name=?,role=?,email=?,store=? WHERE id=?')
-    .run(n.name, n.role, n.email, n.store, req.params.id);
+  db.prepare('UPDATE users SET name=?,role=?,email=?,store=?,whatsapp=?,hourlyRate=? WHERE id=?')
+    .run(n.name, n.role, n.email, n.store, n.whatsapp || '', Number(n.hourlyRate) || 0, req.params.id);
   res.json(publicUser(db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id)));
 }));
 
@@ -469,8 +483,9 @@ r.get('/expenses', requireAuth, h((req, res) => {
 }));
 
 r.post('/expenses', requireAuth, requireRole('admin', 'manager', 'accountant'), h((req, res) => {
-  const { date, category = '', payee = '', amount, method = 'cash', note = '', clientId = null } = req.body || {};
+  const { date, category = '', payee = '', amount, method = 'cash', note = '', clientId = null, type = 'operating' } = req.body || {};
   if (!date || amount == null) throw new Error('date and amount are required');
+  if (type !== 'operating' && type !== 'setup') throw new Error('type must be "operating" or "setup"');
 
   // Same idempotency pattern as orders: a retried/offline-queued expense
   // carries the same clientId, so a retry can't double-record it.
@@ -480,8 +495,8 @@ r.post('/expenses', requireAuth, requireRole('admin', 'manager', 'accountant'), 
   }
 
   const info = db.prepare(
-    'INSERT INTO expenses (date,category,payee,amount,method,note,createdBy,createdAt,clientId) VALUES (?,?,?,?,?,?,?,?,?)'
-  ).run(date, category, payee, Math.round(Number(amount)), method, note, req.user.name, new Date().toISOString(), clientId);
+    'INSERT INTO expenses (date,category,payee,amount,method,note,createdBy,createdAt,clientId,type) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(date, category, payee, Math.round(Number(amount)), method, note, req.user.name, new Date().toISOString(), clientId, type);
   res.status(201).json(db.prepare('SELECT * FROM expenses WHERE id=?').get(info.lastInsertRowid));
 }));
 
@@ -693,10 +708,13 @@ r.get('/reports/pnl', h((req, res) => {
 
   // expenses.date is a plain YYYY-MM-DD string (from the date input), unlike
   // orders.createdAt which is a full timestamp — compare against the plain
-  // from/to dates, not the time-bounded f/t used for orders.
+  // from/to dates, not the time-bounded f/t used for orders. One-time
+  // 'setup' costs are excluded here on purpose — they're tracked against
+  // cumulative profit separately (see /reports/breakeven) instead of
+  // distorting whichever single period they happened to be paid in.
   const expensesByCategory = db.prepare(
     `SELECT category, COALESCE(SUM(amount),0) AS amount FROM expenses
-     WHERE date >= ? AND date <= ? GROUP BY category ORDER BY amount DESC`
+     WHERE date >= ? AND date <= ? AND type != 'setup' GROUP BY category ORDER BY amount DESC`
   ).all(fromDate, toDate);
   const totalExpenses = expensesByCategory.reduce((s, e) => s + e.amount, 0);
 
@@ -728,7 +746,7 @@ r.get('/reports/pnl-trend', h((req, res) => {
        WHERE o.createdAt >= ? AND o.createdAt <= ?`
     ).get(f, t);
     const expenseTotal = db.prepare(
-      'SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE date >= ? AND date <= ?'
+      "SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE date >= ? AND date <= ? AND type != 'setup'"
     ).get(`${monthStr}-01`, `${monthStr}-${String(lastDay).padStart(2, '0')}`).amount;
 
     const grossProfit = margin.revenue - margin.cogs;
@@ -738,6 +756,29 @@ r.get('/reports/pnl-trend', h((req, res) => {
     });
   }
   res.json(rows);
+}));
+
+// ---- Break-even: have we earned back what it cost to set this place up? ----
+// totalSetupCost is every expense ever logged with type='setup'. cumulativeNetProfit
+// is the SAME net-profit math /reports/pnl uses (gross margin minus operating
+// expenses), just over the business's entire history instead of one range —
+// setup costs are deliberately excluded from that subtraction (see the note
+// on /reports/pnl) so they're only ever compared here, once, against profit
+// earned since day one.
+r.get('/reports/breakeven', h((req, res) => {
+  const setupCost = db.prepare("SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE type='setup'").get().amount;
+  const margin = db.prepare(
+    `SELECT COALESCE(SUM(oi.price*oi.qty),0) AS revenue, COALESCE(SUM(oi.cost*oi.qty),0) AS cogs FROM order_items oi`
+  ).get();
+  const operatingExpenses = db.prepare("SELECT COALESCE(SUM(amount),0) AS amount FROM expenses WHERE type != 'setup'").get().amount;
+  const cumulativeNetProfit = (margin.revenue - margin.cogs) - operatingExpenses;
+  const remaining = Math.max(0, setupCost - cumulativeNetProfit);
+  res.json({
+    setupCost, cumulativeNetProfit, operatingExpenses,
+    revenue: margin.revenue, cogs: margin.cogs,
+    remaining, brokenEven: setupCost > 0 && cumulativeNetProfit >= setupCost,
+    pctRecovered: setupCost > 0 ? Math.max(0, Math.min(100, Math.round((cumulativeNetProfit / setupCost) * 100))) : 0,
+  });
 }));
 
 export default r;
