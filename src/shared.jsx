@@ -5,8 +5,8 @@
 //  • Toasts, a generic Modal, simple form fields.
 //  • CSV export helper.
 //  • Entity forms (Product, Supplier, User, Purchase Order).
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { X, CheckCircle2, AlertTriangle, Info, ShieldCheck, Delete, UserCircle2 } from 'lucide-react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { X, CheckCircle2, AlertTriangle, Info, ShieldCheck, Delete, UserCircle2, Camera } from 'lucide-react';
 import api, { imageUrl, setToken, getToken, getPendingMutations, queuePendingMutation, flushPendingMutations } from './api.js';
 
 /* ---------------- CSV export ---------------- */
@@ -328,6 +328,58 @@ export function ProductForm({ open, onClose, initial }) {
   const [addingCat, setAddingCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // Camera capture state
+  const [showCamera, setShowCamera]   = useState(false);
+  const [snapPreview, setSnapPreview] = useState(null); // data URL of captured frame
+  const videoRef  = useRef(null);
+  const streamRef = useRef(null);
+
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  };
+  const closeCamera = () => { stopStream(); setShowCamera(false); setSnapPreview(null); };
+  const openCamera  = async () => {
+    setSnapPreview(null);
+    setShowCamera(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      streamRef.current = stream;
+      // videoRef may not be mounted yet — wait one tick
+      setTimeout(() => { if (videoRef.current) videoRef.current.srcObject = stream; }, 0);
+    } catch (err) {
+      toast('Camera not available — ' + (err.message || 'permission denied'), 'error');
+      setShowCamera(false);
+    }
+  };
+  const snapPhoto = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    const canvas = document.createElement('canvas');
+    canvas.width  = v.videoWidth  || 640;
+    canvas.height = v.videoHeight || 480;
+    canvas.getContext('2d').drawImage(v, 0, 0);
+    setSnapPreview(canvas.toDataURL('image/jpeg', 0.85));
+    stopStream();
+  };
+  const useSnappedPhoto = async () => {
+    if (!snapPreview) return;
+    setUploading(true);
+    try {
+      const { path } = await api.uploadImage('camera-snap.jpg', snapPreview);
+      setForm(f => ({ ...f, image: path }));
+      toast('Photo attached');
+      closeCamera();
+    } catch (err) {
+      toast(!err.status ? "Can't upload while offline — try again once connected" : err.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+  // Always release the camera when the modal closes or the form is reset
+  useEffect(() => { if (!open) closeCamera(); }, [open]); // eslint-disable-line
+
   useEffect(() => { setForm(initial || blank); setAutoGenerateSku(false); setAddingCat(false); setNewCatName(''); setShowEmojiPicker(false); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
   const categoryOptions = (liveCategories?.length ? liveCategories : CATS.map(c => ({ id: c, label: c })))
@@ -524,12 +576,52 @@ export function ProductForm({ open, onClose, initial }) {
               {preview ? 'Change photo' : 'Upload photo'}
               <input type="file" accept="image/*" className="hidden" onChange={onPickImage} />
             </label>
+            <button type="button" onClick={showCamera ? closeCamera : openCamera}
+              className="px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm font-medium hover:bg-stone-50 flex items-center gap-1.5">
+              <Camera size={15} />{showCamera ? 'Close camera' : 'Take photo'}
+            </button>
             {preview && (
               <button type="button" onClick={() => setForm(f => ({ ...f, image: null }))}
                 className="text-xs text-stone-500 hover:text-rose-600 text-left">Remove photo</button>
             )}
           </div>
         </div>
+
+        {/* Inline camera viewfinder */}
+        {showCamera && (
+          <div className="mt-3 rounded-xl overflow-hidden border border-stone-200 bg-black relative">
+            {!snapPreview ? (
+              <>
+                <video ref={videoRef} autoPlay playsInline muted
+                  className="w-full max-h-64 object-cover block" />
+                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-3">
+                  <button type="button" onClick={snapPhoto}
+                    className="px-5 py-2 bg-white rounded-full text-sm font-semibold shadow-lg hover:bg-stone-100 flex items-center gap-1.5">
+                    <Camera size={15} /> Snap
+                  </button>
+                  <button type="button" onClick={closeCamera}
+                    className="px-4 py-2 bg-stone-800/80 text-white rounded-full text-sm font-medium hover:bg-stone-700">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <img src={snapPreview} alt="Captured" className="w-full max-h-64 object-cover block" />
+                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-3">
+                  <button type="button" onClick={useSnappedPhoto} disabled={uploading}
+                    className="px-5 py-2 bg-emerald-600 text-white rounded-full text-sm font-semibold shadow-lg hover:bg-emerald-700 disabled:opacity-60">
+                    {uploading ? 'Uploading…' : 'Use photo'}
+                  </button>
+                  <button type="button" onClick={() => { setSnapPreview(null); openCamera(); }}
+                    className="px-4 py-2 bg-stone-800/80 text-white rounded-full text-sm font-medium hover:bg-stone-700">
+                    Retake
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </Field>
 
       <Field label="Name (EN)"><Input value={form.name} onChange={set('name')} /></Field>
