@@ -1707,25 +1707,53 @@ const ProductsPanel = () => {
   };
   const openAdd = () => { setEditing(null); setModalOpen(true); };
   const openEdit = (p) => { setEditing(p); setModalOpen(true); };
-  // A manufacturer's printed barcode is just a string of digits like any
-  // other SKU — if it's already on a product, scanning it again is someone
-  // restocking, so open that product to edit; if it's new, open Add product
-  // pre-filled with the barcode as the SKU so the rest just needs filling in.
+  // Scan handler: shared by both the modal and the autosensing listener.
+  // Existing SKU → show in search results. New barcode → open Add form pre-filled.
   const handleScanToAdd = (raw) => {
     const code = (raw || '').trim();
     if (!code) return false;
     setScanOpen(false);
     const match = products.find(p => (p.sku || '').toLowerCase() === code.toLowerCase());
     if (match) {
-      setEditing(match);
-      toast(`Barcode matches an existing product — editing "${match.name}"`, 'info');
+      setSearch(code);
+      toast(`Found: ${match.name}`, 'info');
     } else {
       setEditing({ name: '', name_fr: '', category: categoryList[0]?.id || 'cosmetics', price: 0, cost: 0, stock: 0, sku: code, emoji: '📦', image: null });
       toast('New barcode — fill in the product details', 'info');
+      setModalOpen(true);
     }
-    setModalOpen(true);
     return true;
   };
+
+  // Autosensing barcode scanner — active as soon as the Inventory page loads,
+  // no button press needed. USB/Bluetooth scanners type each character in < 30 ms
+  // then send Enter; we accumulate and dispatch to handleScanToAdd.
+  // Paused while a modal is open (modals have their own focused inputs).
+  const _invScanRef = useRef(null);
+  _invScanRef.current = handleScanToAdd;
+  const _invBuf  = useRef('');
+  const _invTick = useRef(null);
+  useEffect(() => {
+    if (modalOpen || scanOpen) return;
+    const handler = (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+      if (e.key === 'Enter') {
+        const code = _invBuf.current.trim();
+        _invBuf.current = '';
+        clearTimeout(_invTick.current);
+        if (code) _invScanRef.current?.(code);
+        return;
+      }
+      if (e.key.length === 1) {
+        _invBuf.current += e.key;
+        clearTimeout(_invTick.current);
+        _invTick.current = setTimeout(() => { _invBuf.current = ''; }, 200);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => { window.removeEventListener('keydown', handler); clearTimeout(_invTick.current); };
+  }, [modalOpen, scanOpen]);
   const stockValue = products.reduce((sum, p) => sum + p.price * p.stock, 0);
   const lowStockCount = products.filter(p => p.stock > 0 && p.stock < lowStockThreshold).length;
   const outOfStockCount = products.filter(p => p.stock === 0).length;
@@ -1741,6 +1769,14 @@ const ProductsPanel = () => {
 
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-stone-200/80 flex items-center gap-3 flex-wrap">
+          {/* Pulsing dot — tells staff the scanner is hot and ready */}
+          <div className="order-0 flex items-center gap-1.5 text-xs text-emerald-700 font-medium flex-shrink-0">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            Scanner active
+          </div>
           <div className="relative flex-1 min-w-full sm:min-w-0 sm:max-w-md order-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('search_products')}
