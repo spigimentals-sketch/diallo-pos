@@ -328,6 +328,8 @@ export function ProductForm({ open, onClose, initial }) {
   const [addingCat, setAddingCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // Combobox for category: user types a label; on save we look it up or create it.
+  const [catInput, setCatInput] = useState('');
 
   // Camera capture state
   const [showCamera, setShowCamera]   = useState(false);
@@ -380,7 +382,19 @@ export function ProductForm({ open, onClose, initial }) {
   // Always release the camera when the modal closes or the form is reset
   useEffect(() => { if (!open) closeCamera(); }, [open]); // eslint-disable-line
 
-  useEffect(() => { setForm(initial || blank); setAutoGenerateSku(false); setAddingCat(false); setNewCatName(''); setShowEmojiPicker(false); }, [initial, open]);
+  useEffect(() => {
+    const f = initial || blank;
+    setForm(f);
+    setAutoGenerateSku(false);
+    setAddingCat(false);
+    setNewCatName('');
+    setShowEmojiPicker(false);
+    // Seed the combobox with the current category's label if it's known, so
+    // the user sees "Cosmetics" rather than the raw slug "cosmetics".
+    const opts = (liveCategories?.length ? liveCategories : []).map(c => ({ value: c.id, label: c.label }));
+    const match = opts.find(o => o.value === f.category);
+    setCatInput(match ? match.label : (f.category || ''));
+  }, [initial, open]); // eslint-disable-line
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
   const categoryOptions = (liveCategories?.length ? liveCategories : CATS.map(c => ({ id: c, label: c })))
     .map(c => ({ value: c.id, label: c.label }));
@@ -517,6 +531,23 @@ export function ProductForm({ open, onClose, initial }) {
     }
   };
 
+  // Resolve the category combobox text to a stable category ID.
+  // Matches by label first (case-insensitive), then by ID, then creates on the fly.
+  const resolveCategory = async () => {
+    const text = catInput.trim();
+    if (!text) return form.category || 'cosmetics';
+    const cats = liveCategories?.length ? liveCategories : [];
+    const byLabel = cats.find(c => c.label.toLowerCase() === text.toLowerCase());
+    if (byLabel) return byLabel.id;
+    const byId = cats.find(c => c.id === text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''));
+    if (byId) return byId.id;
+    // New category — create it in the database, then select it.
+    const created = await api.createCategory(text);
+    upsertCategory(created);
+    toast(`Category "${created.label}" saved`);
+    return created.id;
+  };
+
   // Inventory edits intentionally require connectivity rather than queueing:
   // an offline edit replayed later could silently overwrite newer changes
   // someone else made in the meantime, which is worse than asking for a retry.
@@ -524,7 +555,14 @@ export function ProductForm({ open, onClose, initial }) {
     // Discounts are no longer a thing this app supports — explicitly zero it
     // out on every save so editing an old product clears any discount it
     // still had from before this feature was removed.
-    const payload = { ...form, price: Number(form.price), cost: Number(form.cost || 0), discount: 0, stock: Number(form.stock) };
+    let catId;
+    try {
+      catId = await resolveCategory();
+    } catch (e) {
+      toast(!e.status ? "Can't save while offline — try again once connected" : e.message, 'error');
+      return;
+    }
+    const payload = { ...form, category: catId, price: Number(form.price), cost: Number(form.cost || 0), discount: 0, stock: Number(form.stock) };
     if (!payload.sku) payload.sku = makeSku(payload.category);
     try {
       const saved = initial?.id
@@ -653,24 +691,21 @@ export function ProductForm({ open, onClose, initial }) {
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Category">
-          {!addingCat ? (
-            <div className="flex items-center gap-2">
-              <SelectInput value={form.category} onChange={set('category')} options={categoryOptions} />
-              <button type="button" onClick={() => setAddingCat(true)}
-                className="px-2.5 py-2 border border-stone-200 rounded-lg text-xs font-medium text-emerald-700 hover:bg-emerald-50 flex-shrink-0 whitespace-nowrap">
-                + New
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="New category name"
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCategory(); } }} autoFocus />
-              <button type="button" onClick={handleAddCategory}
-                className="px-3 py-2 bg-emerald-900 text-white rounded-lg text-xs font-medium hover:bg-emerald-800 flex-shrink-0">Add</button>
-              <button type="button" onClick={() => { setAddingCat(false); setNewCatName(''); }}
-                className="p-2 text-stone-400 hover:text-stone-600 flex-shrink-0"><X size={14} /></button>
-            </div>
-          )}
+          {/* Combobox: pick from the list or just type a new name — it gets
+              created automatically when you save the product. */}
+          <>
+            <input
+              list="cat-options"
+              value={catInput}
+              onChange={e => setCatInput(e.target.value)}
+              placeholder="e.g. Beverages"
+              className="w-full px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            />
+            <datalist id="cat-options">
+              {categoryOptions.map(o => <option key={o.value} value={o.label} />)}
+            </datalist>
+            <p className="text-[11px] text-stone-400 mt-1">Choose from the list or type a new category — it will be saved automatically.</p>
+          </>
         </Field>
         <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
         <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
