@@ -1082,6 +1082,39 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   };
   const handleScan = () => setShowScan(true);
 
+  // Autosensing barcode scanner — works without the modal or the search box
+  // being focused. USB/Bluetooth scanners act as keyboards: they emit each
+  // character in < 30 ms and terminate with Enter. We accumulate those chars
+  // globally and fire onScanCode on Enter, but only when the user hasn't
+  // deliberately focused a real text input (which handles its own input).
+  const _onScanCode = useRef(null);
+  _onScanCode.current = onScanCode;
+  const _scanBuf  = useRef('');
+  const _scanTick = useRef(null);
+  useEffect(() => {
+    if (showScan) return; // scan modal has its own focused input — don't double-handle
+    const handler = (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+      if (e.key === 'Enter') {
+        const code = _scanBuf.current.trim();
+        _scanBuf.current = '';
+        clearTimeout(_scanTick.current);
+        if (code) _onScanCode.current?.(code);
+        return;
+      }
+      if (e.key.length === 1) {
+        _scanBuf.current += e.key;
+        clearTimeout(_scanTick.current);
+        // Reset if no new char arrives within 200 ms — scanner finishes in < 100 ms,
+        // so anything slower is a stray human keypress, not a scan burst.
+        _scanTick.current = setTimeout(() => { _scanBuf.current = ''; }, 200);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => { window.removeEventListener('keydown', handler); clearTimeout(_scanTick.current); };
+  }, [showScan]);
+
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const tva = subtotal * tvaRate;
   const total = subtotal + tva;
