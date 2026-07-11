@@ -705,6 +705,18 @@ const QRPattern = () => {
 const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   const { t, lang } = useT();
   const { activeCashier } = useShifts();
+  // Inject a scoped @page rule so the receipt prints on 80 mm thermal paper.
+  // Done here rather than in index.css so it doesn't affect the Reports
+  // page, which also calls window.print() but needs a full-size page.
+  useEffect(() => {
+    if (!open) return;
+    const style = document.createElement('style');
+    style.id = 'receipt-page-size';
+    style.textContent = '@page { size: 80mm auto; margin: 0; }';
+    document.head.appendChild(style);
+    return () => document.getElementById('receipt-page-size')?.remove();
+  }, [open]);
+
   // Fires once per completed sale, right as the receipt appears — printing
   // shouldn't depend on someone remembering to click Print every time.
   // The brief delay lets the modal actually paint first.

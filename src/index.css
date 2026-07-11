@@ -13,6 +13,9 @@ html, body, #root { height: 100%; margin: 0; }
   body:has(.print-receipt) .print-receipt,
   body:has(.print-receipt) .print-receipt * { visibility: visible; }
   body:has(.print-receipt) .print-receipt {
-    position: absolute; top: 0; left: 0; width: 100%; box-shadow: none;
+    position: absolute; top: 0; left: 0;
+    /* Override the inline width: 300px — 80 mm is the standard thermal roll width. */
+    width: 80mm !important;
+    box-shadow: none;
   }
 }
