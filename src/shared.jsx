@@ -49,7 +49,10 @@ const CODE39_PATTERNS = {
 // barcode (always encoding just the SKU, so hardware scanners still match it
 // against p.sku), the SKU as human-readable text, and an optional price at
 // the bottom. Only the bars encode data — name/price are printed, not encoded.
-export function createBarcodeDataUrl(text, { name, price } = {}) {
+// scale > 1 produces a higher-resolution canvas for sharp print output.
+// Use scale=3 when generating for print (300 DPI equivalent on a 96 DPI screen).
+export function createBarcodeDataUrl(text, { name, price, scale = 1 } = {}) {
+  const s = Math.max(1, scale);
   const normalized = text.trim().toUpperCase();
   if (!normalized) throw new Error('SKU is required to generate a barcode');
   const codes = [`*`, ...normalized.split(''), `*`];
@@ -58,8 +61,8 @@ export function createBarcodeDataUrl(text, { name, price } = {}) {
     throw new Error('SKU contains unsupported characters for barcode printing');
   }
 
-  const moduleWidth = 2;
-  const barHeight = 100;
+  const moduleWidth = 2 * s;
+  const barHeight = 100 * s;
   const quietZone = moduleWidth * 10;
   const charGap = moduleWidth;
   const totalModules = patternStrings.reduce((sum, pattern) => {
@@ -70,20 +73,21 @@ export function createBarcodeDataUrl(text, { name, price } = {}) {
   const nameText = (name || '').trim();
   const priceText = price != null && price !== '' ? `${new Intl.NumberFormat('fr-FR').format(Math.round(Number(price)))} FCFA` : '';
 
-  const nameFont = 'bold 20px Arial, sans-serif';
-  const priceFont = 'bold 22px Arial, sans-serif';
+  const nameFont = `bold ${20 * s}px Arial, sans-serif`;
+  const priceFont = `bold ${22 * s}px Arial, sans-serif`;
+  const skuFont = `${16 * s}px Arial, sans-serif`;
   const measure = document.createElement('canvas').getContext('2d');
   measure.font = nameFont;
   const nameWidth = nameText ? measure.measureText(nameText).width : 0;
   measure.font = priceFont;
   const priceWidth = priceText ? measure.measureText(priceText).width : 0;
 
-  const width = Math.ceil(Math.max(barsWidth, nameWidth + 24, priceWidth + 24));
-  const nameBlockHeight = nameText ? 34 : 0;
-  const priceBlockHeight = priceText ? 36 : 0;
-  const skuBlockHeight = 32;
-  const topPad = 16;
-  const height = topPad + nameBlockHeight + barHeight + skuBlockHeight + priceBlockHeight + 12;
+  const width = Math.ceil(Math.max(barsWidth, nameWidth + 24 * s, priceWidth + 24 * s));
+  const nameBlockHeight = nameText ? 34 * s : 0;
+  const priceBlockHeight = priceText ? 36 * s : 0;
+  const skuBlockHeight = 32 * s;
+  const topPad = 16 * s;
+  const height = topPad + nameBlockHeight + barHeight + skuBlockHeight + priceBlockHeight + 12 * s;
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -97,9 +101,9 @@ export function createBarcodeDataUrl(text, { name, price } = {}) {
   let y = topPad;
   if (nameText) {
     ctx.font = nameFont;
-    y += 20;
+    y += 20 * s;
     ctx.fillText(nameText, width / 2, y);
-    y += nameBlockHeight - 20;
+    y += nameBlockHeight - 20 * s;
   }
 
   const barsTop = y;
@@ -116,14 +120,14 @@ export function createBarcodeDataUrl(text, { name, price } = {}) {
   });
   y += barHeight;
 
-  ctx.font = '16px Arial, sans-serif';
-  y += 22;
+  ctx.font = skuFont;
+  y += 22 * s;
   ctx.fillText(normalized, width / 2, y);
-  y += skuBlockHeight - 22;
+  y += skuBlockHeight - 22 * s;
 
   if (priceText) {
     ctx.font = priceFont;
-    y += 24;
+    y += 24 * s;
     ctx.fillText(priceText, width / 2, y);
   }
 
@@ -433,16 +437,13 @@ export function ProductForm({ open, onClose, initial }) {
       return;
     }
     try {
-      const dataUrl = createBarcodeDataUrl(form.sku, { name: form.name, price: form.price });
+      // 3× scale → ~300 DPI-equivalent on a 4.33 in label at 96 DPI screen res.
+      const dataUrl = createBarcodeDataUrl(form.sku, { name: form.name, price: form.price, scale: 3 });
       const popup = window.open('', '_blank');
       if (!popup) {
         toast('Unable to open print window. Please allow popups and try again.', 'error');
         return;
       }
-      // Branded preview to look at before printing — but the @media print
-      // block strips all of that chrome back to just the bare barcode image
-      // at the top-left of the page, since a thermal label printer needs
-      // the scannable bars, not a colored card around them.
       popup.document.write(`<!doctype html>
 <html>
 <head>
@@ -480,10 +481,12 @@ export function ProductForm({ open, onClose, initial }) {
     box-shadow: 0 8px 20px -8px rgba(6,78,59,.45);
   }
   .btn:hover { filter: brightness(1.05); }
+  @page { size: 4.33in auto; margin: 0; }
   @media print {
-    body { background: #fff; min-height: 0; padding: 0; align-items: flex-start; }
+    body { background: #fff; min-height: 0; padding: 0; margin: 0; display: block; }
     .brand, .eyebrow, .btn { display: none; }
-    .card { border: none; box-shadow: none; border-radius: 0; padding: 0; }
+    .card { border: none; box-shadow: none; border-radius: 0; padding: 0; width: 4.33in; }
+    .card img { width: 100%; height: auto; display: block; }
   }
 </style>
 </head>
@@ -495,7 +498,7 @@ export function ProductForm({ open, onClose, initial }) {
       <div class="brand-sub">Point of Sale</div>
     </div>
   </div>
-  <div class="eyebrow">Product label preview</div>
+  <div class="eyebrow">Product label preview · 4.33 in label</div>
   <div class="card"><img src="${dataUrl}" alt="Barcode for ${(form.sku || '').replace(/</g, '&lt;')}" /></div>
   <button class="btn" onclick="window.print()">Print label</button>
 </body>
