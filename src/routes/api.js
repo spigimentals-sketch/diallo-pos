@@ -337,22 +337,20 @@ r.get('/shifts', h((req, res) => {
   res.json(shifts.map(({ expectedCash, countedCash, cashVariance, clockInPhoto, ...rest }) => rest));
 }));
 
-// Clock IN — always the authenticated user. A clock-in photo is required:
-// it's the thing standing in for "this is really that person," now that
-// fingerprint verification turned out to be impractical (WebAuthn ties a
-// credential to one exact origin, which broke every time the domain
-// changed). The photo is just uploaded like a product photo (see /upload
-// above) and the resulting path is stored against this shift.
+// Clock IN — always the authenticated user. A photo is required for
+// non-admin roles (stands in for "this is really that person"). Admins
+// are the ones who review everyone else's photos, so requiring one of
+// themselves adds no accountability — they clock in without one.
 r.post('/shifts/clock-in', requireAuth, h((req, res) => {
   if (isHandheldUA(req.headers['user-agent'])) throw new Error('Use the POS terminal for this — not a phone or tablet');
   const { photo } = req.body || {};
-  if (!photo) throw new Error('A clock-in photo is required');
+  if (!photo && req.user.role !== 'admin') throw new Error('A clock-in photo is required');
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
   if (!u) throw new Error('account not found');
   const open = db.prepare('SELECT * FROM shifts WHERE employeeId=? AND clockOut IS NULL').get(u.id);
   if (open) throw new Error('You are already clocked in');
   const info = db.prepare('INSERT INTO shifts (employeeId,name,role,clockIn,clockOut,clockInPhoto) VALUES (?,?,?,?,NULL,?)')
-    .run(u.id, u.name, u.role, new Date().toISOString(), photo);
+    .run(u.id, u.name, u.role, new Date().toISOString(), photo || null);
   res.status(201).json(db.prepare('SELECT * FROM shifts WHERE id=?').get(info.lastInsertRowid));
 }));
 
