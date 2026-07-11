@@ -334,7 +334,12 @@ const ShiftProvider = ({ children }) => {
       return;
     }
     try {
-      const { path: photoPath } = await api.uploadImage('clockin.jpg', photoDataUrl);
+      // Admin clocks in without a photo (photoDataUrl is null) — skip upload.
+      let photoPath = null;
+      if (photoDataUrl) {
+        const { path } = await api.uploadImage('clockin.jpg', photoDataUrl);
+        photoPath = path;
+      }
       const sh = await api.clockIn(photoPath);
       patch('shifts', list => [sh, ...list]);
       toast('Clocked in', 'success');
@@ -3816,10 +3821,12 @@ const ShiftsView = () => {
               <ArrowUpLeft size={16} /> Clock out
             </button>
           ) : (
-            <button onClick={() => setShowCamera(true)} disabled={onHandheld}
+            <button
+              onClick={() => user?.role === 'admin' ? clockIn(null) : setShowCamera(true)}
+              disabled={onHandheld}
               title={onHandheld ? 'Clock in from the POS terminal — not a phone or tablet' : undefined}
               className="px-5 py-2.5 rounded-xl bg-emerald-900 text-white text-sm font-medium hover:bg-emerald-800 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-900">
-              <Camera size={16} /> Clock in
+              {user?.role === 'admin' ? <Clock size={16} /> : <Camera size={16} />} Clock in
             </button>
           )}
         </div>
