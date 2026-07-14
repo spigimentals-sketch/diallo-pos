@@ -7,7 +7,7 @@
 //  • Entity forms (Product, Supplier, User, Purchase Order).
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { X, CheckCircle2, AlertTriangle, Info, ShieldCheck, Delete, UserCircle2, Camera } from 'lucide-react';
-import api, { imageUrl, setToken, getToken, getPendingMutations, queuePendingMutation, flushPendingMutations } from './api.js';
+import api, { imageUrl, setToken, getToken, getPendingMutations, queuePendingMutation, flushPendingMutations, clearAllPendingMutations } from './api.js';
 
 /* ---------------- CSV export ---------------- */
 export function downloadCsv(filename, rows) {
@@ -272,8 +272,13 @@ export function DataProvider({ fallback, children }) {
   // whether or not the backend call succeeds.
   const patch = (key, fn) => setState(prev => ({ ...prev, [key]: fn(prev[key]) }));
 
+  const dismissPendingSync = () => {
+    clearAllPendingMutations();
+    setPendingSyncCount(0);
+  };
+
   const value = {
-    ...state, online, loading, refresh, patch, setState, pendingSyncCount, queueMutation,
+    ...state, online, loading, refresh, patch, setState, pendingSyncCount, queueMutation, dismissPendingSync,
     upsertProduct: (p) => patch('products', list => {
       const i = list.findIndex(x => x.id === p.id);
       return i >= 0 ? list.map(x => x.id === p.id ? p : x) : [...list, p];

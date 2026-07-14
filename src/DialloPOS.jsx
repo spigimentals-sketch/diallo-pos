@@ -596,7 +596,7 @@ const LangToggle = () => {
 
 const TopBar = ({ title, subtitle, children, onMenu }) => {
   const { lang } = useT();
-  const { products, online, pendingSyncCount, settings } = useData();
+  const { products, online, pendingSyncCount, dismissPendingSync, settings } = useData();
   const [open, setOpen] = useState(false);
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
   const lowStock = (products || []).filter(p => p.stock < lowStockThreshold);
@@ -641,9 +641,16 @@ const TopBar = ({ title, subtitle, children, onMenu }) => {
           )}
         </div>
         {pendingSyncCount > 0 && (
-          <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium whitespace-nowrap" title="Saved on this device while offline — will sync automatically">
-            <RefreshCw size={12} className="flex-shrink-0" />
-            {pendingSyncCount} pending sync
+          <div className="flex items-center gap-1 pl-2 sm:pl-3 pr-1 py-1.5 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium whitespace-nowrap" title="Saved on this device while offline — will sync automatically">
+            <RefreshCw size={12} className="flex-shrink-0 animate-spin" style={{ animationDuration: '2s' }} />
+            <span className="mx-1">{pendingSyncCount} pending sync</span>
+            <button
+              onClick={() => { if (window.confirm('Dismiss stuck sync items? Only do this if data was already saved or the item is outdated.')) dismissPendingSync(); }}
+              className="p-1 rounded hover:bg-amber-100 text-amber-700 flex-shrink-0"
+              title="Dismiss stuck items"
+            >
+              <X size={11} />
+            </button>
           </div>
         )}
         <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-medium whitespace-nowrap">

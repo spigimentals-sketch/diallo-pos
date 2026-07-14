@@ -131,7 +131,11 @@ const MUTATION_HANDLERS = {
   // needs connectivity), so retrying means uploading it now and only then
   // clocking in with the resulting path.
   clockIn: {
-    run: async (p) => { const { path } = await api.uploadImage('clockin.jpg', p?.photo); return api.clockIn(path); },
+    run: async (p) => {
+      if (!p?.photo) return api.clockIn(null);
+      const { path } = await api.uploadImage('clockin.jpg', p.photo);
+      return api.clockIn(path);
+    },
     alreadyDone: (e) => /already clocked in/i.test(e.message || ''),
   },
   clockOut: { run: (p) => api.clockOut(p?.countedCash), alreadyDone: (e) => /not clocked in/i.test(e.message || '') },
@@ -151,6 +155,9 @@ export function queuePendingMutation(type, payload) {
 }
 export function removePendingMutation(id) {
   savePendingMutations(getPendingMutations().filter((m) => m.id !== id));
+}
+export function clearAllPendingMutations() {
+  savePendingMutations([]);
 }
 
 // Attempts to sync every queued mutation, in order. Stops on the first
