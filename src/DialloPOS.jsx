@@ -3885,21 +3885,30 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
     setError('');
     setCapturing(false);
     setLivenessPhase('loading-model');
-    // Try front-cam constraint first (works on mobile); fall back to plain
-    // { video: true } for PC webcams that don't expose facingMode at all.
     const tryCamera = (c) => navigator.mediaDevices.getUserMedia(c);
     (navigator.mediaDevices
       ? tryCamera({ video: { facingMode: 'user' }, audio: false })
           .catch(() => tryCamera({ video: true, audio: false }))
-      : Promise.reject(new Error('Camera not available'))
+      : Promise.reject(Object.assign(new Error('no devices'), { name: 'NotFoundError' }))
     ).then((stream) => {
       if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
       streamRef.current = stream;
-      // Assign after a micro-tick so the video element is guaranteed mounted.
       requestAnimationFrame(() => {
         if (!cancelled && videoRef.current) videoRef.current.srcObject = stream;
       });
-    }).catch(() => setError('Camera access is required to clock in — allow camera permission and try again.'));
+    }).catch((err) => {
+      if (cancelled) return;
+      const n = err?.name || '';
+      if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
+        setError('PERMISSION_DENIED');
+      } else if (n === 'NotFoundError' || n === 'DevicesNotFoundError') {
+        setError('NO_CAMERA');
+      } else if (n === 'NotReadableError' || n === 'TrackStartError') {
+        setError('CAMERA_BUSY');
+      } else {
+        setError('GENERIC');
+      }
+    });
 
     // Dynamically imported — face-api.js pulls in TensorFlow.js, which
     // roughly doubles the JS bundle, so it's only fetched when this modal
@@ -3984,7 +3993,20 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
           <button onClick={handleClose} className="p-1.5 rounded-md hover:bg-stone-100"><X size={15} className="text-stone-500" /></button>
         </div>
         {error ? (
-          <div className="text-sm text-rose-600 py-8 text-center">{error}</div>
+          <div className="py-6 text-center space-y-3">
+            {error === 'PERMISSION_DENIED' ? (<>
+              <p className="text-sm font-semibold text-rose-700">Camera access blocked</p>
+              <p className="text-xs text-stone-500 leading-relaxed">Chrome is blocking the camera for this site. Click the <strong>camera icon</strong> or <strong>lock icon</strong> in the address bar, set Camera to <strong>Allow</strong>, then reload and try again.</p>
+            </>) : error === 'NO_CAMERA' ? (<>
+              <p className="text-sm font-semibold text-rose-700">No camera found</p>
+              <p className="text-xs text-stone-500">Make sure a webcam is plugged in and recognised by Windows, then try again.</p>
+            </>) : error === 'CAMERA_BUSY' ? (<>
+              <p className="text-sm font-semibold text-rose-700">Camera in use by another app</p>
+              <p className="text-xs text-stone-500">Close Zoom, Teams, or any other app using the camera, then try again.</p>
+            </>) : (
+              <p className="text-sm text-rose-600">Could not access the camera — allow camera permission and try again.</p>
+            )}
+          </div>
         ) : (
           <>
             <div className="rounded-xl overflow-hidden bg-stone-900 aspect-square mb-3 relative">
