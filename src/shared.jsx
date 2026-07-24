@@ -479,12 +479,16 @@ export function ProductForm({ open, onClose, initial }) {
     box-shadow: 0 8px 20px -8px rgba(6,78,59,.45);
   }
   .btn:hover { filter: brightness(1.05); }
-  @page { size: 4.33in auto; margin: 0; }
+  @page { size: 4in auto; margin: 0; }
   @media print {
-    body { background: #fff; min-height: 0; padding: 0; margin: 0; display: block; }
+    body { background: #fff; min-height: 0; padding: 0; margin: 0; display: block; width: 4in; }
     .brand, .eyebrow, .btn { display: none; }
-    .card { border: none; box-shadow: none; border-radius: 0; padding: 0; width: 4.33in; }
-    .card img { width: 100%; height: auto; display: block; }
+    .card {
+      border: none; box-shadow: none; border-radius: 0; padding: 0;
+      margin: 0.5in auto 0;
+      width: fit-content;
+    }
+    .card img { display: block; height: auto; max-width: 3.6in; }
   }
 </style>
 </head>
