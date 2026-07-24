@@ -733,7 +733,7 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
     return () => clearTimeout(id);
   }, [open]);
   if (!open) return null;
-  const { items = [], subtotal = 0, tva = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
+  const { items = [], subtotal = 0, discount = 0, tva = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
   const paid = total;
   const change = 0;
   const productName = (p) => lang === 'fr' ? (PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
@@ -821,6 +821,9 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
               {/* Totals */}
               <div className="space-y-0.5 text-[11px]">
                 <div className="flex justify-between"><span>{t('subtotal')}</span><span>{fmt(subtotal)}</span></div>
+                {discount > 0 && (
+                  <div className="flex justify-between text-rose-700 font-medium"><span>Discount</span><span>-{fmt(discount)}</span></div>
+                )}
                 <div className="flex justify-between"><span>TVA</span><span>{fmt(tva)}</span></div>
                 <div className="border-t border-stone-900 my-1.5" />
                 <div className="flex justify-between font-bold text-sm">
@@ -1025,12 +1028,142 @@ const HomeView = ({ onCheckout, onSelectCategory }) => {
   );
 };
 
+// ============ DISCOUNT MODAL ============
+// Two-phase: first the manager PIN, then the discount amount.
+// The PIN lives in settings.discountPin (admin/manager-only field).
+const DiscountModal = ({ open, onClose, onApply, discountPin, subtotal }) => {
+  const [phase, setPhase]     = useState('pin');   // 'pin' | 'amount'
+  const [pinEntry, setPinEntry] = useState('');
+  const [mode, setMode]       = useState('pct');   // 'pct' | 'fcfa'
+  const [entry, setEntry]     = useState('');
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!open) { setPhase('pin'); setPinEntry(''); setEntry(''); setMode('pct'); }
+  }, [open]);
+
+  const pressPin = (k) => {
+    if (k === '←') { setPinEntry(p => p.slice(0, -1)); return; }
+    const next = pinEntry + k;
+    if (next.length > 6) return;
+    setPinEntry(next);
+    if (next.length === String(discountPin).length) {
+      setTimeout(() => {
+        if (next === String(discountPin)) {
+          setPhase('amount'); setPinEntry('');
+        } else {
+          toast('Incorrect PIN', 'error'); setPinEntry('');
+        }
+      }, 150);
+    }
+  };
+
+  const pressAmount = (k) => {
+    if (k === 'C') { setEntry(''); return; }
+    if (k === '←') { setEntry(e => e.slice(0, -1)); return; }
+    if (entry.length >= 8) return;
+    setEntry(e => e + k);
+  };
+
+  const apply = () => {
+    const num = parseFloat(entry) || 0;
+    if (num <= 0) { toast('Enter a discount amount', 'error'); return; }
+    let fcfa;
+    if (mode === 'pct') {
+      if (num > 100) { toast('Cannot exceed 100%', 'error'); return; }
+      fcfa = Math.round(subtotal * num / 100);
+    } else {
+      if (num > subtotal) { toast('Discount cannot exceed subtotal', 'error'); return; }
+      fcfa = Math.round(num);
+    }
+    onApply(fcfa);
+    onClose();
+  };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl w-80 overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="bg-stone-900 px-5 py-4 flex items-center justify-between">
+          <div>
+            <div className="text-white font-medium text-sm">{phase === 'pin' ? 'Discount Authorization' : 'Enter Discount'}</div>
+            <div className="text-stone-400 text-[11px] mt-0.5">
+              {phase === 'pin' ? 'Enter manager PIN to continue' : `Subtotal: ${fmt(subtotal)}`}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800"><X size={16} className="text-stone-400" /></button>
+        </div>
+
+        {phase === 'pin' ? (
+          <div className="p-5">
+            {/* PIN dots */}
+            <div className="flex justify-center gap-3 mb-6 mt-2">
+              {Array.from({ length: String(discountPin).length }).map((_, i) => (
+                <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all ${i < pinEntry.length ? 'bg-stone-900 border-stone-900' : 'border-stone-300'}`} />
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {['1','2','3','4','5','6','7','8','9','','0','←'].map((k, i) => (
+                k === '' ? <div key={i} /> :
+                <button key={i} onClick={() => pressPin(k)}
+                  className="h-14 rounded-2xl text-lg font-medium bg-stone-100 text-stone-900 hover:bg-stone-200 active:scale-95 transition-all">
+                  {k}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="p-5">
+            {/* Mode toggle */}
+            <div className="flex items-center gap-1 bg-stone-100 rounded-xl p-1 mb-4">
+              {[{id:'pct',label:'% Percentage'},{id:'fcfa',label:'FCFA Amount'}].map(m => (
+                <button key={m.id} onClick={() => { setMode(m.id); setEntry(''); }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${mode === m.id ? 'bg-white shadow-sm text-stone-900' : 'text-stone-500'}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            {/* Amount display */}
+            <div className="bg-stone-50 rounded-xl px-4 py-3 mb-4 text-center min-h-[60px] flex flex-col items-center justify-center">
+              <div className="text-2xl font-bold text-stone-900" style={{ fontFamily: "'Fraunces', serif" }}>
+                {entry || '0'}{mode === 'pct' ? '%' : ' FCFA'}
+              </div>
+              {entry && mode === 'pct' && (
+                <div className="text-xs text-stone-500 mt-0.5">= {fmt(Math.round(subtotal * (parseFloat(entry)||0) / 100))}</div>
+              )}
+            </div>
+            {/* Numpad */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {['1','2','3','4','5','6','7','8','9','C','0','←'].map((k, i) => (
+                <button key={i} onClick={() => pressAmount(k)}
+                  className={`h-12 rounded-xl text-base font-medium transition-all active:scale-95 ${
+                    k === 'C' ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' :
+                    k === '←' ? 'bg-stone-100 text-stone-500 hover:bg-stone-200' :
+                    'bg-stone-100 text-stone-900 hover:bg-stone-200'
+                  }`}>
+                  {k}
+                </button>
+              ))}
+            </div>
+            <button onClick={apply}
+              className="w-full py-3 bg-gradient-to-r from-emerald-700 to-emerald-900 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-900/20 transition-all flex items-center justify-center gap-2">
+              <Percent size={15} /> Apply Discount
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const { t, lang } = useT();
   const { activeCashier } = useShifts();
   const { products: liveProducts, customers: liveCustomers, online, refresh, settings, queueMutation } = useData();
   const tvaRate = Number(settings?.tvaRate ?? 19.25) / 100;
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
+  const discountPin = settings?.discountPin || '';
   const { toast } = useToast();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customerList = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
@@ -1047,6 +1180,8 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const [paymentMethod, setPaymentMethod] = useState('mobile');
   const [showReceipt, setShowReceipt] = useState(false);
   const [showScan, setShowScan] = useState(false);
+  const [discount, setDiscount] = useState(0);       // FCFA flat discount on this order
+  const [showDiscount, setShowDiscount] = useState(false);
 
   // No customer is selected by default — this is a supermarket counter, not
   // a loyalty-program checkout, and there's no time to register someone for
@@ -1140,8 +1275,10 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   }, [showScan]);
 
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const tva = subtotal * tvaRate;
-  const total = subtotal + tva;
+  const discountAmt = Math.min(discount, subtotal);
+  const discountedBase = subtotal - discountAmt;
+  const tva = discountedBase * tvaRate;
+  const total = discountedBase + tva;
 
   // A frozen copy of what was just bought, separate from the live cart —
   // the cart only empties once the cashier clicks "New order", but the
@@ -1191,12 +1328,12 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
     const payload = {
       items: cart.map(i => ({ id: i.id, name: i.name, sku: i.sku, price: i.price, qty: i.qty })),
       customerId: customer?.id || null,
-      method: paymentMethod, cashier: activeCashier.name, tva, clientOrderId,
+      method: paymentMethod, cashier: activeCashier.name, tva, discount: discountAmt, clientOrderId,
     };
     // Captured now, not read live off the cart later — the cart stays as-is
     // until the cashier clicks "New order", but this snapshot keeps the
     // receipt's contents stable even once they do.
-    const snapshot = { items: cart, subtotal, tva, total, customer, method: paymentMethod };
+    const snapshot = { items: cart, subtotal, discount: discountAmt, tva, total, customer, method: paymentMethod };
     try {
       const order = await api.createOrder(payload);
       setCompletedOrder({ ...snapshot, invoiceNo: order.invoiceNo });
@@ -1219,7 +1356,7 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
     }
   };
 
-  const startNewOrder = () => { setCart([]); setShowReceipt(false); setCompletedOrder(null); setJustPaid(false); };
+  const startNewOrder = () => { setCart([]); setDiscount(0); setShowReceipt(false); setCompletedOrder(null); setJustPaid(false); };
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
@@ -1375,6 +1512,22 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
         <div className="border-t border-stone-200/80 p-5 bg-stone-50/50 flex-shrink-0">
           <div className="space-y-1.5 mb-4 text-sm">
             <div className="flex justify-between text-stone-600"><span>{t('subtotal')}</span><span>{fmt(subtotal)}</span></div>
+            {discountAmt > 0 ? (
+              <div className="flex justify-between items-center text-rose-600 font-medium">
+                <span className="flex items-center gap-1"><Percent size={11} /> Discount</span>
+                <span className="flex items-center gap-1.5">
+                  -{fmt(discountAmt)}
+                  <button onClick={() => setDiscount(0)} className="text-rose-400 hover:text-rose-600 transition-colors" title="Remove discount">
+                    <X size={12} />
+                  </button>
+                </span>
+              </div>
+            ) : discountPin && cart.length > 0 && (
+              <button onClick={() => setShowDiscount(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-stone-400 hover:text-emerald-700 border border-dashed border-stone-200 hover:border-emerald-300 rounded-lg transition-all">
+                <Percent size={11} /> Add discount
+              </button>
+            )}
             <div className="flex justify-between text-stone-600"><span>TVA ({(tvaRate * 100).toLocaleString()}%)</span><span>{fmt(tva)}</span></div>
             <div className="h-px bg-stone-200 my-2" />
             <div className="flex justify-between items-baseline">
@@ -1429,6 +1582,7 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
 
       <ReceiptModal open={showReceipt} onClose={() => setShowReceipt(false)} data={completedOrder} onNewOrder={startNewOrder} />
       <ScanModal open={showScan} onClose={() => setShowScan(false)} onScan={onScanCode} />
+      <DiscountModal open={showDiscount} onClose={() => setShowDiscount(false)} onApply={setDiscount} discountPin={discountPin} subtotal={subtotal} />
 
       <Modal open={showCustomerPicker} onClose={() => setShowCustomerPicker(false)} title={t('add_customer')}>
         <div className="space-y-1">
@@ -3175,6 +3329,7 @@ const SettingsView = () => {
     acceptCash: true,
     acceptCard: true,
     acceptMobile: true,
+    discountPin: '',
     lowStockThreshold: '10',
     dailySummary: true,
     weeklySummary: true,
@@ -3410,17 +3565,24 @@ const SettingsView = () => {
           )}
 
           {tab === 'payments' && (
-            <SettingsCard title={t('s_payments')} desc="Choose which payment methods to accept">
-              <SettingsField label={t('accept_cash')} hint="Espèces / banknotes">
-                <Toggle checked={settings.acceptCash} onChange={update('acceptCash')} />
-              </SettingsField>
-              <SettingsField label={t('accept_card')} hint="Visa, Mastercard via terminal">
-                <Toggle checked={settings.acceptCard} onChange={update('acceptCard')} />
-              </SettingsField>
-              <SettingsField label={t('accept_mobile')} hint="MTN MoMo, Orange Money">
-                <Toggle checked={settings.acceptMobile} onChange={update('acceptMobile')} />
-              </SettingsField>
-            </SettingsCard>
+            <>
+              <SettingsCard title={t('s_payments')} desc="Choose which payment methods to accept">
+                <SettingsField label={t('accept_cash')} hint="Espèces / banknotes">
+                  <Toggle checked={settings.acceptCash} onChange={update('acceptCash')} />
+                </SettingsField>
+                <SettingsField label={t('accept_card')} hint="Visa, Mastercard via terminal">
+                  <Toggle checked={settings.acceptCard} onChange={update('acceptCard')} />
+                </SettingsField>
+                <SettingsField label={t('accept_mobile')} hint="MTN MoMo, Orange Money">
+                  <Toggle checked={settings.acceptMobile} onChange={update('acceptMobile')} />
+                </SettingsField>
+              </SettingsCard>
+              <SettingsCard title="Discount Control" desc="PIN-protect discount approvals at checkout">
+                <SettingsField label="Discount PIN" hint="4–6 digit PIN a manager must enter before applying any discount — leave blank to disable discounts entirely">
+                  <TextInput value={settings.discountPin} onChange={v => update('discountPin')(v.replace(/\D/g, '').slice(0, 6))} placeholder="e.g. 1234" width="w-32" />
+                </SettingsField>
+              </SettingsCard>
+            </>
           )}
 
           {tab === 'users' && (
