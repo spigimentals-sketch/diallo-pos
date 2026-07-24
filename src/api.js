@@ -106,6 +106,13 @@ export const api = {
   // maintenance
   clearData: () => req('POST', '/maintenance/clear-data'),
   clearActivity: () => req('POST', '/maintenance/clear-activity'),
+  // discount approval
+  createDiscountRequest: (p) => req('POST', '/discount-requests', p),
+  getDiscountRequest: (id) => req('GET', `/discount-requests/${id}`),
+  getPendingDiscountRequests: () => req('GET', '/discount-requests/pending'),
+  approveDiscountRequest: (id) => req('PUT', `/discount-requests/${id}/approve`),
+  rejectDiscountRequest: (id, note) => req('PUT', `/discount-requests/${id}/reject`, { note }),
+  cancelDiscountRequest: (id) => req('DELETE', `/discount-requests/${id}`),
 };
 
 export default api;

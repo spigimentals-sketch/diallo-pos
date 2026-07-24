@@ -1028,37 +1028,17 @@ const HomeView = ({ onCheckout, onSelectCategory }) => {
   );
 };
 
-// ============ DISCOUNT MODAL ============
-// Two-phase: first the manager PIN, then the discount amount.
-// The PIN lives in settings.discountPin (admin/manager-only field).
-const DiscountModal = ({ open, onClose, onApply, discountPin, subtotal }) => {
-  const [phase, setPhase]     = useState('pin');   // 'pin' | 'amount'
-  const [pinEntry, setPinEntry] = useState('');
-  const [mode, setMode]       = useState('pct');   // 'pct' | 'fcfa'
-  const [entry, setEntry]     = useState('');
+// ============ DISCOUNT INPUT MODAL ============
+// Cashier enters the discount amount freely — no PIN required.
+// The order only completes once a manager approves the request server-side.
+const DiscountInputModal = ({ open, onClose, onApply, subtotal }) => {
+  const [mode, setMode] = useState('pct');   // 'pct' | 'fcfa'
+  const [entry, setEntry] = useState('');
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (!open) { setPhase('pin'); setPinEntry(''); setEntry(''); setMode('pct'); }
-  }, [open]);
+  useEffect(() => { if (!open) { setEntry(''); setMode('pct'); } }, [open]);
 
-  const pressPin = (k) => {
-    if (k === '←') { setPinEntry(p => p.slice(0, -1)); return; }
-    const next = pinEntry + k;
-    if (next.length > 6) return;
-    setPinEntry(next);
-    if (next.length === String(discountPin).length) {
-      setTimeout(() => {
-        if (next === String(discountPin)) {
-          setPhase('amount'); setPinEntry('');
-        } else {
-          toast('Incorrect PIN', 'error'); setPinEntry('');
-        }
-      }, 150);
-    }
-  };
-
-  const pressAmount = (k) => {
+  const press = (k) => {
     if (k === 'C') { setEntry(''); return; }
     if (k === '←') { setEntry(e => e.slice(0, -1)); return; }
     if (entry.length >= 8) return;
@@ -1068,15 +1048,13 @@ const DiscountModal = ({ open, onClose, onApply, discountPin, subtotal }) => {
   const apply = () => {
     const num = parseFloat(entry) || 0;
     if (num <= 0) { toast('Enter a discount amount', 'error'); return; }
-    let fcfa;
     if (mode === 'pct') {
       if (num > 100) { toast('Cannot exceed 100%', 'error'); return; }
-      fcfa = Math.round(subtotal * num / 100);
+      onApply(Math.round(subtotal * num / 100));
     } else {
       if (num > subtotal) { toast('Discount cannot exceed subtotal', 'error'); return; }
-      fcfa = Math.round(num);
+      onApply(Math.round(num));
     }
-    onApply(fcfa);
     onClose();
   };
 
@@ -1084,74 +1062,153 @@ const DiscountModal = ({ open, onClose, onApply, discountPin, subtotal }) => {
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-3xl shadow-2xl w-80 overflow-hidden" onClick={e => e.stopPropagation()}>
-        {/* Header */}
         <div className="bg-stone-900 px-5 py-4 flex items-center justify-between">
           <div>
-            <div className="text-white font-medium text-sm">{phase === 'pin' ? 'Discount Authorization' : 'Enter Discount'}</div>
-            <div className="text-stone-400 text-[11px] mt-0.5">
-              {phase === 'pin' ? 'Enter manager PIN to continue' : `Subtotal: ${fmt(subtotal)}`}
-            </div>
+            <div className="text-white font-medium text-sm">Enter Discount</div>
+            <div className="text-stone-400 text-[11px] mt-0.5">Subtotal: {fmt(subtotal)}</div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800"><X size={16} className="text-stone-400" /></button>
         </div>
-
-        {phase === 'pin' ? (
-          <div className="p-5">
-            {/* PIN dots */}
-            <div className="flex justify-center gap-3 mb-6 mt-2">
-              {Array.from({ length: String(discountPin).length }).map((_, i) => (
-                <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all ${i < pinEntry.length ? 'bg-stone-900 border-stone-900' : 'border-stone-300'}`} />
-              ))}
+        <div className="p-5">
+          <div className="flex items-center gap-1 bg-stone-100 rounded-xl p-1 mb-4">
+            {[{id:'pct',label:'% Percentage'},{id:'fcfa',label:'FCFA Amount'}].map(m => (
+              <button key={m.id} onClick={() => { setMode(m.id); setEntry(''); }}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${mode === m.id ? 'bg-white shadow-sm text-stone-900' : 'text-stone-500'}`}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <div className="bg-stone-50 rounded-xl px-4 py-3 mb-4 text-center min-h-[60px] flex flex-col items-center justify-center">
+            <div className="text-2xl font-bold text-stone-900" style={{ fontFamily: "'Fraunces', serif" }}>
+              {entry || '0'}{mode === 'pct' ? '%' : ' FCFA'}
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {['1','2','3','4','5','6','7','8','9','','0','←'].map((k, i) => (
-                k === '' ? <div key={i} /> :
-                <button key={i} onClick={() => pressPin(k)}
-                  className="h-14 rounded-2xl text-lg font-medium bg-stone-100 text-stone-900 hover:bg-stone-200 active:scale-95 transition-all">
-                  {k}
-                </button>
-              ))}
+            {entry && mode === 'pct' && (
+              <div className="text-xs text-stone-500 mt-0.5">= {fmt(Math.round(subtotal * (parseFloat(entry)||0) / 100))}</div>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {['1','2','3','4','5','6','7','8','9','C','0','←'].map((k, i) => (
+              <button key={i} onClick={() => press(k)}
+                className={`h-12 rounded-xl text-base font-medium transition-all active:scale-95 ${
+                  k === 'C' ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' :
+                  k === '←' ? 'bg-stone-100 text-stone-500 hover:bg-stone-200' :
+                  'bg-stone-100 text-stone-900 hover:bg-stone-200'
+                }`}>
+                {k}
+              </button>
+            ))}
+          </div>
+          <button onClick={apply}
+            className="w-full py-3 bg-gradient-to-r from-emerald-700 to-emerald-900 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-900/20 transition-all flex items-center justify-center gap-2">
+            <Percent size={15} /> Apply Discount
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============ DISCOUNT APPROVAL WATCHER ============
+// Runs globally for admin/manager — polls for pending discount requests and
+// shows an approval modal so they can approve or reject without switching tabs.
+const DiscountApprovalWatcher = () => {
+  const { user } = useAuth();
+  const { online } = useData();
+  const { toast } = useToast();
+  const [pending, setPending] = useState([]);
+  const [current, setCurrent] = useState(null);
+  const isManager = user && ['admin', 'manager'].includes(user.role);
+
+  useEffect(() => {
+    if (!isManager || !online) return;
+    const poll = async () => {
+      try {
+        const list = await api.getPendingDiscountRequests();
+        setPending(list);
+        setCurrent(prev => {
+          if (prev && list.find(r => r.id === prev.id)) return prev; // keep current if still pending
+          return list[0] || null;
+        });
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => clearInterval(id);
+  }, [isManager, online]); // eslint-disable-line
+
+  const approve = async () => {
+    if (!current) return;
+    try {
+      await api.approveDiscountRequest(current.id);
+      toast(`Discount approved for ${current.cashier}`);
+      const next = pending.filter(r => r.id !== current.id);
+      setPending(next);
+      setCurrent(next[0] || null);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const reject = async () => {
+    if (!current) return;
+    const note = window.prompt('Reason for rejection (optional):') ?? '';
+    // user pressed Cancel on prompt → note is null; treat as cancel-reject
+    if (note === null) return;
+    try {
+      await api.rejectDiscountRequest(current.id, note);
+      toast('Discount rejected');
+      const next = pending.filter(r => r.id !== current.id);
+      setPending(next);
+      setCurrent(next[0] || null);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  if (!current || !isManager) return null;
+  const newTotal = current.subtotal - current.discountAmt;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl w-96 overflow-hidden">
+        <div className="bg-amber-500 px-5 py-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-white/25 flex items-center justify-center flex-shrink-0">
+            <Percent size={18} className="text-white" />
+          </div>
+          <div>
+            <div className="text-white font-semibold">Discount Approval Required</div>
+            <div className="text-amber-100 text-[11px] mt-0.5">Requested by {current.cashier}</div>
+          </div>
+        </div>
+        <div className="p-5">
+          <div className="bg-stone-50 rounded-xl p-3 mb-4 max-h-40 overflow-y-auto space-y-1">
+            {current.items.map((it, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-stone-700 truncate flex-1 mr-2">{it.name} × {it.qty}</span>
+                <span className="text-stone-500 flex-shrink-0">{fmt(it.price * it.qty)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1.5 text-sm mb-5">
+            <div className="flex justify-between text-stone-500"><span>Subtotal</span><span>{fmt(current.subtotal)}</span></div>
+            <div className="flex justify-between font-semibold text-rose-600 text-base">
+              <span>Discount requested</span><span>-{fmt(current.discountAmt)}</span>
+            </div>
+            <div className="h-px bg-stone-200 my-1" />
+            <div className="flex justify-between font-bold text-stone-900 text-base">
+              <span>New total</span>
+              <span style={{ fontFamily: "'Fraunces', serif" }}>{fmt(newTotal)}</span>
             </div>
           </div>
-        ) : (
-          <div className="p-5">
-            {/* Mode toggle */}
-            <div className="flex items-center gap-1 bg-stone-100 rounded-xl p-1 mb-4">
-              {[{id:'pct',label:'% Percentage'},{id:'fcfa',label:'FCFA Amount'}].map(m => (
-                <button key={m.id} onClick={() => { setMode(m.id); setEntry(''); }}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${mode === m.id ? 'bg-white shadow-sm text-stone-900' : 'text-stone-500'}`}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            {/* Amount display */}
-            <div className="bg-stone-50 rounded-xl px-4 py-3 mb-4 text-center min-h-[60px] flex flex-col items-center justify-center">
-              <div className="text-2xl font-bold text-stone-900" style={{ fontFamily: "'Fraunces', serif" }}>
-                {entry || '0'}{mode === 'pct' ? '%' : ' FCFA'}
-              </div>
-              {entry && mode === 'pct' && (
-                <div className="text-xs text-stone-500 mt-0.5">= {fmt(Math.round(subtotal * (parseFloat(entry)||0) / 100))}</div>
-              )}
-            </div>
-            {/* Numpad */}
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {['1','2','3','4','5','6','7','8','9','C','0','←'].map((k, i) => (
-                <button key={i} onClick={() => pressAmount(k)}
-                  className={`h-12 rounded-xl text-base font-medium transition-all active:scale-95 ${
-                    k === 'C' ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' :
-                    k === '←' ? 'bg-stone-100 text-stone-500 hover:bg-stone-200' :
-                    'bg-stone-100 text-stone-900 hover:bg-stone-200'
-                  }`}>
-                  {k}
-                </button>
-              ))}
-            </div>
-            <button onClick={apply}
-              className="w-full py-3 bg-gradient-to-r from-emerald-700 to-emerald-900 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-900/20 transition-all flex items-center justify-center gap-2">
-              <Percent size={15} /> Apply Discount
+          <div className="flex gap-3">
+            <button onClick={reject}
+              className="flex-1 py-3 border-2 border-rose-200 text-rose-600 rounded-xl font-medium hover:bg-rose-50 transition-all">
+              Reject
+            </button>
+            <button onClick={approve}
+              className="flex-1 py-3 bg-gradient-to-r from-emerald-700 to-emerald-900 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-900/20 transition-all">
+              Approve
             </button>
           </div>
-        )}
+          {pending.length > 1 && (
+            <div className="text-center text-xs text-stone-400 mt-3">{pending.length - 1} more request{pending.length - 1 > 1 ? 's' : ''} waiting</div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1163,7 +1220,6 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const { products: liveProducts, customers: liveCustomers, online, refresh, settings, queueMutation } = useData();
   const tvaRate = Number(settings?.tvaRate ?? 19.25) / 100;
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
-  const discountPin = settings?.discountPin || '';
   const { toast } = useToast();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const customerList = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
@@ -1180,8 +1236,10 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const [paymentMethod, setPaymentMethod] = useState('mobile');
   const [showReceipt, setShowReceipt] = useState(false);
   const [showScan, setShowScan] = useState(false);
-  const [discount, setDiscount] = useState(0);       // FCFA flat discount on this order
+  const [discount, setDiscount] = useState(0);         // FCFA flat discount on this order
   const [showDiscount, setShowDiscount] = useState(false);
+  const [discountRequestId, setDiscountRequestId] = useState(null); // pending approval ID
+  const pendingOrderRef = useRef(null); // { payload, snapshot } while waiting for approval
 
   // No customer is selected by default — this is a supermarket counter, not
   // a loyalty-program checkout, and there's no time to register someone for
@@ -1308,12 +1366,30 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   };
   useEffect(broadcastCart, [cart, subtotal, tva, total, customer, justPaid, lang]);
 
+  // Core order creation — called directly (no discount) or after approval.
+  const doCreateOrder = async (payload, snapshot) => {
+    try {
+      const order = await api.createOrder(payload);
+      setCompletedOrder({ ...snapshot, invoiceNo: order.invoiceNo });
+      setJustPaid(true);
+      refresh();
+      setShowReceipt(true);
+    } catch (e) {
+      if (!e.status) {
+        queueMutation('order', payload);
+        const invoiceNo = 'INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000);
+        setCompletedOrder({ ...snapshot, invoiceNo });
+        setJustPaid(true);
+        toast('Offline — sale saved, will sync automatically once back online', 'info');
+        setShowReceipt(true);
+      } else {
+        toast(e.message, 'error');
+      }
+    }
+  };
+
   const completePayment = async () => {
     if (cart.length === 0 || !activeCashier) return;
-    // Re-check against the latest known stock right before sending — the
-    // cart may have been built a while ago and another terminal could have
-    // sold the same product since. The backend re-checks this too (it has
-    // the truly current number); this is just a faster, friendlier reject.
     for (const item of cart) {
       const live = products.find(p => p.id === item.id);
       if (live && live.stock < item.qty) {
@@ -1321,40 +1397,54 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
         return;
       }
     }
-    // Identifies this exact checkout attempt so a retry (by us, automatically,
-    // once back online) can never create a second sale server-side — see the
-    // dedup check in POST /orders.
     const clientOrderId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const payload = {
       items: cart.map(i => ({ id: i.id, name: i.name, sku: i.sku, price: i.price, qty: i.qty })),
       customerId: customer?.id || null,
       method: paymentMethod, cashier: activeCashier.name, tva, discount: discountAmt, clientOrderId,
     };
-    // Captured now, not read live off the cart later — the cart stays as-is
-    // until the cashier clicks "New order", but this snapshot keeps the
-    // receipt's contents stable even once they do.
     const snapshot = { items: cart, subtotal, discount: discountAmt, tva, total, customer, method: paymentMethod };
-    try {
-      const order = await api.createOrder(payload);
-      setCompletedOrder({ ...snapshot, invoiceNo: order.invoiceNo });
-      setJustPaid(true);
-      refresh(); // pull fresh stock levels + customer spend/visits
-      setShowReceipt(true);
-    } catch (e) {
-      if (!e.status) {
-        // Couldn't reach the backend at all — don't lose the sale. Queue it
-        // here; it syncs automatically (and safely) once the connection is back.
-        queueMutation('order', payload);
-        const invoiceNo = 'INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000);
-        setCompletedOrder({ ...snapshot, invoiceNo });
-        setJustPaid(true);
-        toast('Offline — sale saved on this device, will sync automatically once back online', 'info');
-        setShowReceipt(true);
-      } else {
-        toast(e.message, 'error');
+
+    if (discountAmt > 0) {
+      // Submit for manager approval — order completes only once approved.
+      try {
+        const req = await api.createDiscountRequest({
+          cashier: activeCashier.name, cashierId: activeCashier.id,
+          items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
+          subtotal, discountAmt,
+        });
+        pendingOrderRef.current = { payload, snapshot };
+        setDiscountRequestId(req.id);
+      } catch (e) {
+        toast(!e.status ? "Can't submit discount request while offline" : e.message, 'error');
       }
+      return;
     }
+
+    await doCreateOrder(payload, snapshot);
   };
+
+  // Poll the discount request until the manager approves or rejects it.
+  useEffect(() => {
+    if (!discountRequestId) return;
+    const poll = async () => {
+      try {
+        const result = await api.getDiscountRequest(discountRequestId);
+        if (result.status === 'approved') {
+          setDiscountRequestId(null);
+          const pending = pendingOrderRef.current;
+          pendingOrderRef.current = null;
+          if (pending) await doCreateOrder(pending.payload, pending.snapshot);
+        } else if (result.status === 'rejected') {
+          setDiscountRequestId(null);
+          pendingOrderRef.current = null;
+          toast(`Discount not approved${result.note ? ': ' + result.note : ''}`, 'error');
+        }
+      } catch {}
+    };
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  }, [discountRequestId]); // eslint-disable-line
 
   const startNewOrder = () => { setCart([]); setDiscount(0); setShowReceipt(false); setCompletedOrder(null); setJustPaid(false); };
 
@@ -1522,7 +1612,7 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
                   </button>
                 </span>
               </div>
-            ) : discountPin && cart.length > 0 && (
+            ) : cart.length > 0 && (
               <button onClick={() => setShowDiscount(true)}
                 className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-stone-400 hover:text-emerald-700 border border-dashed border-stone-200 hover:border-emerald-300 rounded-lg transition-all">
                 <Percent size={11} /> Add discount
@@ -1582,7 +1672,32 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
 
       <ReceiptModal open={showReceipt} onClose={() => setShowReceipt(false)} data={completedOrder} onNewOrder={startNewOrder} />
       <ScanModal open={showScan} onClose={() => setShowScan(false)} onScan={onScanCode} />
-      <DiscountModal open={showDiscount} onClose={() => setShowDiscount(false)} onApply={setDiscount} discountPin={discountPin} subtotal={subtotal} />
+      <DiscountInputModal open={showDiscount} onClose={() => setShowDiscount(false)} onApply={setDiscount} subtotal={subtotal} />
+
+      {/* Cashier waiting overlay — shown while manager reviews the discount request */}
+      {discountRequestId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 w-80 text-center">
+            <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+              <Percent size={28} className="text-amber-600" />
+            </div>
+            <div className="font-semibold text-stone-900 text-lg mb-1">Awaiting Approval</div>
+            <div className="text-rose-600 font-medium text-sm mb-1">Discount: -{fmt(discountAmt)}</div>
+            <div className="text-stone-400 text-xs mb-6">A manager needs to approve this discount before the receipt can print.</div>
+            <div className="flex justify-center gap-2 mb-6">
+              {[0,1,2].map(i => (
+                <div key={i} className="w-2 h-2 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: `${i * 0.18}s` }} />
+              ))}
+            </div>
+            <button onClick={async () => {
+              try { await api.cancelDiscountRequest(discountRequestId); } catch {}
+              setDiscountRequestId(null); pendingOrderRef.current = null;
+            }} className="text-xs text-stone-400 hover:text-stone-600 transition-colors underline underline-offset-2">
+              Cancel request
+            </button>
+          </div>
+        </div>
+      )}
 
       <Modal open={showCustomerPicker} onClose={() => setShowCustomerPicker(false)} title={t('add_customer')}>
         <div className="space-y-1">
@@ -3565,24 +3680,17 @@ const SettingsView = () => {
           )}
 
           {tab === 'payments' && (
-            <>
-              <SettingsCard title={t('s_payments')} desc="Choose which payment methods to accept">
-                <SettingsField label={t('accept_cash')} hint="Espèces / banknotes">
-                  <Toggle checked={settings.acceptCash} onChange={update('acceptCash')} />
-                </SettingsField>
-                <SettingsField label={t('accept_card')} hint="Visa, Mastercard via terminal">
-                  <Toggle checked={settings.acceptCard} onChange={update('acceptCard')} />
-                </SettingsField>
-                <SettingsField label={t('accept_mobile')} hint="MTN MoMo, Orange Money">
-                  <Toggle checked={settings.acceptMobile} onChange={update('acceptMobile')} />
-                </SettingsField>
-              </SettingsCard>
-              <SettingsCard title="Discount Control" desc="PIN-protect discount approvals at checkout">
-                <SettingsField label="Discount PIN" hint="4–6 digit PIN a manager must enter before applying any discount — leave blank to disable discounts entirely">
-                  <TextInput value={settings.discountPin} onChange={v => update('discountPin')(v.replace(/\D/g, '').slice(0, 6))} placeholder="e.g. 1234" width="w-32" />
-                </SettingsField>
-              </SettingsCard>
-            </>
+            <SettingsCard title={t('s_payments')} desc="Choose which payment methods to accept">
+              <SettingsField label={t('accept_cash')} hint="Espèces / banknotes">
+                <Toggle checked={settings.acceptCash} onChange={update('acceptCash')} />
+              </SettingsField>
+              <SettingsField label={t('accept_card')} hint="Visa, Mastercard via terminal">
+                <Toggle checked={settings.acceptCard} onChange={update('acceptCard')} />
+              </SettingsField>
+              <SettingsField label={t('accept_mobile')} hint="MTN MoMo, Orange Money">
+                <Toggle checked={settings.acceptMobile} onChange={update('acceptMobile')} />
+              </SettingsField>
+            </SettingsCard>
           )}
 
           {tab === 'users' && (
@@ -4442,6 +4550,9 @@ function DialloPOSShell({ titles }) {
         ::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
       `}</style>
+
+      {/* Global discount approval modal — visible to admin/manager on any page */}
+      <DiscountApprovalWatcher />
 
       {/* Mobile backdrop when the sidebar is open */}
       {mobileNav && <div onClick={() => setMobileNav(false)} className="fixed inset-0 bg-stone-900/40 z-30 lg:hidden" />}
