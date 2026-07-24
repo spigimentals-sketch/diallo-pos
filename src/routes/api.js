@@ -463,6 +463,57 @@ r.get('/orders', h((req, res) => {
   res.json(orders);
 }));
 
+// ---------------- DISCOUNT REQUESTS ----------------
+// Cashier submits a discount request; manager/admin approves or rejects it
+// before the order is finalised and the receipt prints.
+
+r.post('/discount-requests', requireAuth, h((req, res) => {
+  const { cashier, cashierId, items = [], subtotal, discountAmt } = req.body;
+  if (!discountAmt || Number(discountAmt) <= 0) throw new Error('discountAmt required');
+  const createdAt = new Date().toISOString();
+  const info = db.prepare(
+    'INSERT INTO discount_requests (cashier,cashierId,items,subtotal,discountAmt,status,createdAt) VALUES (?,?,?,?,?,?,?)'
+  ).run(cashier, cashierId || null, JSON.stringify(items), Number(subtotal), Number(discountAmt), 'pending', createdAt);
+  res.status(201).json({ id: info.lastInsertRowid, status: 'pending', createdAt });
+}));
+
+r.get('/discount-requests/pending', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
+  const rows = db.prepare("SELECT * FROM discount_requests WHERE status='pending' ORDER BY createdAt ASC").all();
+  res.json(rows.map(r => ({ ...r, items: JSON.parse(r.items) })));
+}));
+
+r.get('/discount-requests/:id', requireAuth, h((req, res) => {
+  const row = db.prepare('SELECT * FROM discount_requests WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json({ ...row, items: JSON.parse(row.items) });
+}));
+
+r.put('/discount-requests/:id/approve', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
+  const row = db.prepare('SELECT * FROM discount_requests WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  if (row.status !== 'pending') return res.json({ id: row.id, status: row.status });
+  const now = new Date().toISOString();
+  db.prepare("UPDATE discount_requests SET status='approved',resolvedAt=?,resolvedBy=? WHERE id=?")
+    .run(now, req.user.name || req.user.username, row.id);
+  res.json({ id: row.id, status: 'approved', resolvedAt: now });
+}));
+
+r.put('/discount-requests/:id/reject', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
+  const { note } = req.body || {};
+  const row = db.prepare('SELECT * FROM discount_requests WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  if (row.status !== 'pending') return res.json({ id: row.id, status: row.status });
+  const now = new Date().toISOString();
+  db.prepare("UPDATE discount_requests SET status='rejected',note=?,resolvedAt=?,resolvedBy=? WHERE id=?")
+    .run(note || null, now, req.user.name || req.user.username, row.id);
+  res.json({ id: row.id, status: 'rejected', resolvedAt: now, note });
+}));
+
+r.delete('/discount-requests/:id', requireAuth, h((req, res) => {
+  db.prepare('DELETE FROM discount_requests WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+}));
+
 // ---------------- SETTINGS ----------------
 r.get('/settings', h((req, res) => {
   const row = db.prepare('SELECT json FROM settings WHERE id=1').get();

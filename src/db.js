@@ -359,4 +359,21 @@ try {
   console.warn('businessName casing migration skipped:', e.message);
 }
 
+// Discount approval requests — cashier submits, manager approves/rejects.
+db.exec(`
+CREATE TABLE IF NOT EXISTS discount_requests (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  cashier     TEXT    NOT NULL,
+  cashierId   INTEGER,
+  items       TEXT    NOT NULL,
+  subtotal    REAL    NOT NULL,
+  discountAmt REAL    NOT NULL,
+  status      TEXT    NOT NULL DEFAULT 'pending',
+  note        TEXT,
+  createdAt   TEXT    NOT NULL,
+  resolvedAt  TEXT,
+  resolvedBy  TEXT
+);
+`);
+
 export default db;
