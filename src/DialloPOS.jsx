@@ -3885,13 +3885,21 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
     setError('');
     setCapturing(false);
     setLivenessPhase('loading-model');
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' }, audio: false })
-      .then((stream) => {
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
-      })
-      .catch(() => setError('Camera access is required to clock in — allow camera permission and try again.'));
+    // Try front-cam constraint first (works on mobile); fall back to plain
+    // { video: true } for PC webcams that don't expose facingMode at all.
+    const tryCamera = (c) => navigator.mediaDevices.getUserMedia(c);
+    (navigator.mediaDevices
+      ? tryCamera({ video: { facingMode: 'user' }, audio: false })
+          .catch(() => tryCamera({ video: true, audio: false }))
+      : Promise.reject(new Error('Camera not available'))
+    ).then((stream) => {
+      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+      streamRef.current = stream;
+      // Assign after a micro-tick so the video element is guaranteed mounted.
+      requestAnimationFrame(() => {
+        if (!cancelled && videoRef.current) videoRef.current.srcObject = stream;
+      });
+    }).catch(() => setError('Camera access is required to clock in — allow camera permission and try again.'));
 
     // Dynamically imported — face-api.js pulls in TensorFlow.js, which
     // roughly doubles the JS bundle, so it's only fetched when this modal
@@ -3960,10 +3968,12 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
     'no-face': { text: 'Position your face in the frame', tone: 'amber' },
     'watching': { text: 'Blink to verify it’s really you', tone: 'amber' },
     'verified': { text: 'Verified — you can capture now', tone: 'emerald' },
-    'unavailable': { text: 'Face check unavailable — check your connection and reopen this dialog', tone: 'rose' },
+    'unavailable': { text: 'Face check unavailable — you can still capture your photo', tone: 'amber' },
   }[livenessPhase];
 
-  const canCapture = !error && !capturing && livenessPhase === 'verified';
+  // Allow capture even when face models failed to load (unavailable) — the
+  // photo still goes to the server for manual review; blink check is a bonus.
+  const canCapture = !error && !capturing && (livenessPhase === 'verified' || livenessPhase === 'unavailable');
 
   if (!open) return null;
   return (
