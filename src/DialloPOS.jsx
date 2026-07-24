@@ -3980,9 +3980,7 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
     'unavailable': { text: 'Face check unavailable — you can still capture your photo', tone: 'amber' },
   }[livenessPhase];
 
-  // Allow capture even when face models failed to load (unavailable) — the
-  // photo still goes to the server for manual review; blink check is a bonus.
-  const canCapture = !error && !capturing && (livenessPhase === 'verified' || livenessPhase === 'unavailable');
+  const canCapture = !error && !capturing;
 
   if (!open) return null;
   return (
