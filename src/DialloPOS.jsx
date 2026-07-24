@@ -4010,14 +4010,6 @@ const ClockInCameraModal = ({ open, onClose, onCapture }) => {
             <div className="rounded-xl overflow-hidden bg-stone-900 aspect-square mb-3 relative">
               <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
             </div>
-            <div className={`flex items-center gap-2 text-xs font-medium mb-4 px-3 py-2 rounded-lg ${
-              livenessMessage.tone === 'emerald' ? 'bg-emerald-50 text-emerald-700' :
-              livenessMessage.tone === 'rose' ? 'bg-rose-50 text-rose-700' :
-              livenessMessage.tone === 'amber' ? 'bg-amber-50 text-amber-700' : 'bg-stone-100 text-stone-500'
-            }`}>
-              {livenessPhase === 'verified' ? <CheckCircle2 size={14} className="flex-shrink-0" /> : <AlertTriangle size={14} className="flex-shrink-0" />}
-              {livenessMessage.text}
-            </div>
           </>
         )}
         <div className="flex gap-2">
