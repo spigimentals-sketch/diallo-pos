@@ -62,6 +62,11 @@ export const api = {
   getSuppliers: () => req('GET', '/suppliers'),
   createSupplier: (s) => req('POST', '/suppliers', s),
   updateSupplier: (id, s) => req('PUT', `/suppliers/${id}`, s),
+  // supplier credit ledger
+  getSupplierBalances: () => req('GET', '/supplier-balances'),
+  getSupplierStatement: (id) => req('GET', `/suppliers/${id}/statement`),
+  addSupplierCredit: (id, data) => req('POST', `/suppliers/${id}/credits`, data),
+  addSupplierPayment: (id, data) => req('POST', `/suppliers/${id}/payments`, data),
   // purchase orders
   getPurchaseOrders: () => req('GET', '/purchase-orders'),
   createPurchaseOrder: (po) => req('POST', '/purchase-orders', po),

@@ -2190,6 +2190,138 @@ const ProductsPanel = () => {
   );
 };
 
+const SupplierLedgerModal = ({ supplier, open, onClose }) => {
+  const { toast } = useToast();
+  const [statement, setStatement] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState(null); // null | 'credit' | 'payment'
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState('');
+
+  const load = async () => {
+    if (!supplier?.id) return;
+    setLoading(true);
+    try { setStatement(await api.getSupplierStatement(supplier.id)); } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (open) { load(); setMode(null); setAmount(''); setNote(''); setDate(new Date().toISOString().slice(0, 10)); }
+  }, [open, supplier?.id]);
+
+  const submit = async () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { toast('Enter a valid amount', 'error'); return; }
+    try {
+      if (mode === 'credit') {
+        await api.addSupplierCredit(supplier.id, { amount: amt, date, note });
+        toast('Credit recorded');
+      } else {
+        await api.addSupplierPayment(supplier.id, { amount: amt, date, note });
+        toast('Payment recorded');
+      }
+      setMode(null); setAmount(''); setNote('');
+      load();
+    } catch (e) { toast(e.message || 'Failed', 'error'); }
+  };
+
+  if (!open) return null;
+  const { totalCredit = 0, totalPaid = 0, outstanding = 0, credits = [], payments = [] } = statement || {};
+  const txns = [
+    ...credits.map(c => ({ ...c, type: 'credit' })),
+    ...payments.map(p => ({ ...p, type: 'payment' })),
+  ].sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
+
+  return (
+    <Modal open={open} onClose={onClose} title={`${supplier?.name} — Credit Ledger`}>
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="bg-stone-50 rounded-xl p-3 text-center">
+          <div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Total Credit</div>
+          <div className="text-sm font-semibold text-stone-900">{fmt(totalCredit)}</div>
+        </div>
+        <div className="bg-emerald-50 rounded-xl p-3 text-center">
+          <div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Paid</div>
+          <div className="text-sm font-semibold text-emerald-700">{fmt(totalPaid)}</div>
+        </div>
+        <div className={`rounded-xl p-3 text-center ${outstanding > 0 ? 'bg-rose-50' : 'bg-stone-50'}`}>
+          <div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Outstanding</div>
+          <div className={`text-sm font-semibold ${outstanding > 0 ? 'text-rose-700' : 'text-stone-500'}`}>
+            {outstanding > 0 ? fmt(outstanding) : '—'}
+          </div>
+        </div>
+      </div>
+
+      {!mode && (
+        <div className="flex gap-2 mb-4">
+          <button onClick={() => setMode('credit')}
+            className="flex-1 py-2 bg-rose-50 text-rose-700 rounded-lg text-sm font-medium hover:bg-rose-100 flex items-center justify-center gap-1.5">
+            <Plus size={14} /> Add Credit
+          </button>
+          <button onClick={() => setMode('payment')} disabled={outstanding <= 0}
+            className="flex-1 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+            <Banknote size={14} /> Record Payment
+          </button>
+        </div>
+      )}
+
+      {mode && (
+        <div className="mb-4 bg-stone-50 rounded-xl p-4 space-y-3">
+          <div className="text-sm font-medium text-stone-900">
+            {mode === 'credit' ? 'New Credit Entry' : 'Record Payment'}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-stone-500 mb-1 block">Amount (FCFA)</label>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0"
+                className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 bg-white" />
+            </div>
+            <div>
+              <label className="text-xs text-stone-500 mb-1 block">Date</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 bg-white" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-stone-500 mb-1 block">Note (optional)</label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. school books delivery"
+              className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-emerald-600 bg-white" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => { setMode(null); setAmount(''); setNote(''); }}
+              className="flex-1 py-2 text-sm text-stone-600 hover:bg-stone-100 rounded-lg transition-colors">Cancel</button>
+            <button onClick={submit}
+              className="flex-1 py-2 bg-emerald-900 text-white rounded-lg text-sm font-medium hover:bg-emerald-800">Save</button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-1.5 max-h-60 overflow-y-auto">
+        {loading ? (
+          <div className="text-center text-sm text-stone-400 py-6">Loading…</div>
+        ) : txns.length === 0 ? (
+          <div className="text-center text-sm text-stone-400 py-6">No transactions yet</div>
+        ) : txns.map(tx => (
+          <div key={`${tx.type}-${tx.id}`} className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-stone-50">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${tx.type === 'credit' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {tx.type === 'credit' ? 'CREDIT' : 'PAID'}
+                </span>
+                <span className="text-xs text-stone-500">{tx.date}</span>
+              </div>
+              {tx.note && <div className="text-xs text-stone-400 mt-0.5">{tx.note}</div>}
+            </div>
+            <div className={`text-sm font-semibold ${tx.type === 'credit' ? 'text-rose-700' : 'text-emerald-700'}`}>
+              {tx.type === 'credit' ? '+' : '−'}{fmt(tx.amount)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+};
+
 const SuppliersPanel = () => {
   const { t } = useT();
   const { suppliers: liveSuppliers, online } = useData();
@@ -2197,6 +2329,16 @@ const SuppliersPanel = () => {
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [ledgerSupplier, setLedgerSupplier] = useState(null);
+  const [balances, setBalances] = useState({});
+  useEffect(() => {
+    api.getSupplierBalances().then(list => {
+      const map = {};
+      list.forEach(b => { map[b.supplierId] = b; });
+      setBalances(map);
+    }).catch(() => {});
+  }, [ledgerSupplier]); // refresh after closing ledger
+
   const filtered = SUPP.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     (s.contact || '').toLowerCase().includes(search.toLowerCase())
@@ -2270,11 +2412,15 @@ const SuppliersPanel = () => {
               <th className="px-3 py-3">{t('products_count')}</th>
               <th className="px-3 py-3">{t('last_order')}</th>
               <th className="px-3 py-3">{t('status')}</th>
+              <th className="px-3 py-3">Outstanding</th>
               <th className="px-5 py-3"></th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map(s => (
+            {filtered.map(s => {
+              const bal = balances[s.id];
+              const outstanding = bal ? bal.outstanding : 0;
+              return (
               <tr key={s.id} className="border-b border-stone-100 hover:bg-stone-50/50">
                 <td className="px-5 py-3">
                   <div className="text-sm font-medium text-stone-900">{s.name}</div>
@@ -2295,16 +2441,27 @@ const SuppliersPanel = () => {
                     {t(s.status)}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-right">
+                <td className="px-3 py-3">
+                  {outstanding > 0 ? (
+                    <span className="text-sm font-semibold text-rose-700">{fmt(outstanding)}</span>
+                  ) : (
+                    <span className="text-xs text-stone-400">—</span>
+                  )}
+                </td>
+                <td className="px-5 py-3 text-right flex items-center justify-end gap-2">
+                  <button onClick={() => setLedgerSupplier(s)}
+                    className="text-xs text-emerald-700 hover:text-emerald-900 font-medium">Ledger</button>
                   <button onClick={() => { setEditing(s); setModalOpen(true); }} className="text-xs text-stone-500 hover:text-stone-900">{t('edit')}</button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         </div>
       </div>
       <SupplierForm open={modalOpen} onClose={() => setModalOpen(false)} initial={editing} />
+      <SupplierLedgerModal supplier={ledgerSupplier} open={!!ledgerSupplier} onClose={() => setLedgerSupplier(null)} />
     </>
   );
 };
