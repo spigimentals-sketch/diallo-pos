@@ -205,6 +205,50 @@ r.put('/suppliers/:id', h((req, res) => {
   res.json(db.prepare('SELECT * FROM suppliers WHERE id=?').get(req.params.id));
 }));
 
+// ---------------- SUPPLIER CREDIT LEDGER ----------------
+r.get('/supplier-balances', requireAuth, h((req, res) => {
+  const credits  = db.prepare('SELECT supplierId, SUM(amount) AS total FROM supplier_credits GROUP BY supplierId').all();
+  const payments = db.prepare('SELECT supplierId, SUM(amount) AS total FROM supplier_payments GROUP BY supplierId').all();
+  const suppliers = db.prepare('SELECT id, name FROM suppliers').all();
+  const balances = suppliers.map(s => {
+    const c = (credits.find(x => x.supplierId === s.id) || {}).total || 0;
+    const p = (payments.find(x => x.supplierId === s.id) || {}).total || 0;
+    return { supplierId: s.id, supplier: s.name, totalCredit: c, totalPaid: p, outstanding: c - p };
+  });
+  res.json(balances);
+}));
+
+r.get('/suppliers/:id/statement', requireAuth, h((req, res) => {
+  const id = parseInt(req.params.id);
+  const credits  = db.prepare('SELECT * FROM supplier_credits  WHERE supplierId=? ORDER BY date, createdAt').all(id);
+  const payments = db.prepare('SELECT * FROM supplier_payments WHERE supplierId=? ORDER BY date, createdAt').all(id);
+  const totalCredit = credits.reduce((s, c) => s + c.amount, 0);
+  const totalPaid   = payments.reduce((s, p) => s + p.amount, 0);
+  res.json({ credits, payments, totalCredit, totalPaid, outstanding: totalCredit - totalPaid });
+}));
+
+r.post('/suppliers/:id/credits', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
+  const sup = db.prepare('SELECT * FROM suppliers WHERE id=?').get(req.params.id);
+  if (!sup) throw new Error('Supplier not found');
+  const { amount, note = '', date } = req.body;
+  if (!amount || Number(amount) <= 0) throw new Error('Amount must be positive');
+  const now = new Date().toISOString();
+  const info = db.prepare('INSERT INTO supplier_credits (supplierId,supplier,amount,note,date,createdAt) VALUES (?,?,?,?,?,?)')
+    .run(sup.id, sup.name, Number(amount), note, date || now.slice(0, 10), now);
+  res.status(201).json(db.prepare('SELECT * FROM supplier_credits WHERE id=?').get(info.lastInsertRowid));
+}));
+
+r.post('/suppliers/:id/payments', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
+  const sup = db.prepare('SELECT * FROM suppliers WHERE id=?').get(req.params.id);
+  if (!sup) throw new Error('Supplier not found');
+  const { amount, note = '', date } = req.body;
+  if (!amount || Number(amount) <= 0) throw new Error('Amount must be positive');
+  const now = new Date().toISOString();
+  const info = db.prepare('INSERT INTO supplier_payments (supplierId,supplier,amount,note,date,createdAt) VALUES (?,?,?,?,?,?)')
+    .run(sup.id, sup.name, Number(amount), note, date || now.slice(0, 10), now);
+  res.status(201).json(db.prepare('SELECT * FROM supplier_payments WHERE id=?').get(info.lastInsertRowid));
+}));
+
 // ---------------- PURCHASE ORDERS ----------------
 // Accounts payable: every PO carries amountPaid, so `outstanding` is what's
 // still owed to that supplier. Computed on read rather than stored, so it

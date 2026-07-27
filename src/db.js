@@ -360,6 +360,28 @@ try {
   console.warn('businessName casing migration skipped:', e.message);
 }
 
+// Supplier credit ledger — tracks goods taken on credit and payments made.
+db.exec(`
+CREATE TABLE IF NOT EXISTS supplier_credits (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplierId  INTEGER NOT NULL,
+  supplier    TEXT    NOT NULL,
+  amount      REAL    NOT NULL,
+  note        TEXT,
+  date        TEXT    NOT NULL,
+  createdAt   TEXT    NOT NULL
+);
+CREATE TABLE IF NOT EXISTS supplier_payments (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplierId  INTEGER NOT NULL,
+  supplier    TEXT    NOT NULL,
+  amount      REAL    NOT NULL,
+  note        TEXT,
+  date        TEXT    NOT NULL,
+  createdAt   TEXT    NOT NULL
+);
+`);
+
 // Discount approval requests — cashier submits, manager approves/rejects.
 db.exec(`
 CREATE TABLE IF NOT EXISTS discount_requests (
