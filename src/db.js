@@ -238,6 +238,7 @@ try {
   const pcols = db.prepare('PRAGMA table_info(products)').all().map(c => c.name);
   if (!pcols.includes('cost')) db.exec('ALTER TABLE products ADD COLUMN cost INTEGER NOT NULL DEFAULT 0');
   if (!pcols.includes('discount')) db.exec('ALTER TABLE products ADD COLUMN discount INTEGER NOT NULL DEFAULT 0');
+  if (!pcols.includes('grade')) db.exec('ALTER TABLE products ADD COLUMN grade TEXT');
   const ocols = db.prepare('PRAGMA table_info(order_items)').all().map(c => c.name);
   if (!ocols.includes('cost')) db.exec('ALTER TABLE order_items ADD COLUMN cost INTEGER DEFAULT 0');
 } catch (e) {

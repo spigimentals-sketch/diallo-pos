@@ -123,11 +123,11 @@ r.get('/products', h((req, res) => {
 }));
 
 r.post('/products', h((req, res) => {
-  const { name, name_fr = '', category, price, cost = 0, discount = 0, stock = 0, sku, emoji = '📦', image = null } = req.body;
+  const { name, name_fr = '', category, grade = null, price, cost = 0, discount = 0, stock = 0, sku, emoji = '📦', image = null } = req.body;
   if (!name || !category || price == null || !sku) throw new Error('name, category, price and sku are required');
   const info = db.prepare(
-    'INSERT INTO products (name,name_fr,category,price,cost,discount,stock,sku,emoji,image) VALUES (?,?,?,?,?,?,?,?,?,?)'
-  ).run(name, name_fr, category, price, cost, discount, stock, sku, emoji, image);
+    'INSERT INTO products (name,name_fr,category,grade,price,cost,discount,stock,sku,emoji,image) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(name, name_fr, category, grade || null, price, cost, discount, stock, sku, emoji, image);
   res.status(201).json(db.prepare('SELECT * FROM products WHERE id=?').get(info.lastInsertRowid));
 }));
 
@@ -135,8 +135,8 @@ r.put('/products/:id', h((req, res) => {
   const cur = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!cur) throw new Error('product not found');
   const n = { ...cur, ...req.body };
-  db.prepare('UPDATE products SET name=?,name_fr=?,category=?,price=?,cost=?,discount=?,stock=?,sku=?,emoji=?,image=? WHERE id=?')
-    .run(n.name, n.name_fr, n.category, n.price, n.cost ?? 0, n.discount ?? 0, n.stock, n.sku, n.emoji, n.image ?? null, req.params.id);
+  db.prepare('UPDATE products SET name=?,name_fr=?,category=?,grade=?,price=?,cost=?,discount=?,stock=?,sku=?,emoji=?,image=? WHERE id=?')
+    .run(n.name, n.name_fr, n.category, n.grade || null, n.price, n.cost ?? 0, n.discount ?? 0, n.stock, n.sku, n.emoji, n.image ?? null, req.params.id);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
 }));
 
