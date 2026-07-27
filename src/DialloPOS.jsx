@@ -9,7 +9,7 @@ import {
   ToastProvider, useToast, DataProvider, useData, Modal, Field, Input,
   ProductForm, SupplierForm, UserForm, POForm,
   downloadCsv, downloadJson, PrimaryBtn, GhostBtn,
-  AuthProvider, useAuth, LoginScreen,
+  AuthProvider, useAuth, LoginScreen, SCHOOL_GRADES,
 } from './shared.jsx';
 import {
   ShoppingCart, Package, Users, BarChart3, Settings,
@@ -1225,10 +1225,13 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const customerList = online ? (liveCustomers || []) : (liveCustomers?.length ? liveCustomers : CUSTOMERS);
   const categoryPills = useCategoryList({ includeAll: true });
   const [activeCat, setActiveCat] = useState(initialCategory || 'all');
+  const [activeGrade, setActiveGrade] = useState(null);
   // Consume the Home page's category pick exactly once — otherwise it'd
   // silently re-apply and override the cashier's own filter choice if this
   // component re-rendered for any other reason.
   useEffect(() => { if (initialCategory) onCategoryConsumed?.(); }, []); // eslint-disable-line
+  // Clear grade sub-filter whenever the cashier switches to a different category.
+  useEffect(() => { if (activeCat !== 'school_materials') setActiveGrade(null); }, [activeCat]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
   const [customer, setCustomer] = useState(null);
@@ -1250,8 +1253,9 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
 
   const filtered = useMemo(() => products.filter(p =>
     (activeCat === 'all' || p.category === activeCat) &&
+    (!activeGrade || p.grade === activeGrade) &&
     (productName(p).toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()))
-  ), [activeCat, search, lang, products]);
+  ), [activeCat, activeGrade, search, lang, products]);
 
   // Never let the cart hold more units of a product than are actually on
   // the shelf — a sale that outruns stock just creates a refund/argument
@@ -1486,6 +1490,28 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
             })}
           </div>
         </div>
+
+        {activeCat === 'school_materials' && (
+          <div className="px-4 sm:px-7 py-3 border-b border-sky-100 bg-sky-50/60 flex-shrink-0">
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-sky-700 mr-1">Level:</span>
+              <button onClick={() => setActiveGrade(null)}
+                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                  !activeGrade ? 'bg-sky-700 text-white shadow-sm' : 'bg-white text-stone-600 border border-stone-200 hover:bg-sky-50'
+                }`}>
+                All
+              </button>
+              {SCHOOL_GRADES.map(g => (
+                <button key={g} onClick={() => setActiveGrade(activeGrade === g ? null : g)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                    activeGrade === g ? 'bg-sky-700 text-white shadow-sm' : 'bg-white text-stone-600 border border-stone-200 hover:bg-sky-50'
+                  }`}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="lg:flex-1 lg:overflow-y-auto px-4 sm:px-7 py-5">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">

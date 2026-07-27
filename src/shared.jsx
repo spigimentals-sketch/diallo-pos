@@ -310,6 +310,12 @@ export function DataProvider({ fallback, children }) {
 /* ---------------- Entity forms ---------------- */
 const CATS = ['cosmetics', 'wines', 'whiskey', 'school_materials', 'perfumes', 'icecream', 'shawarma'];
 
+export const SCHOOL_GRADES = [
+  'Maternelle', 'CP', 'CE1', 'CE2', 'CM1', 'CM2',
+  '6ème', '5ème', '4ème', '3ème', '2nde', '1ère', 'Terminale',
+  'Université', 'Accessoires',
+];
+
 // A curated set covering this shop's actual categories, so picking an icon
 // per product is a couple of clicks instead of having to type/paste an
 // emoji character by hand.
@@ -330,7 +336,7 @@ const PRODUCT_EMOJIS = [
 export function ProductForm({ open, onClose, initial }) {
   const { upsertProduct, patch, categories: liveCategories, upsertCategory } = useData();
   const { toast } = useToast();
-  const blank = { name: '', name_fr: '', category: 'cosmetics', price: 0, cost: 0, stock: 0, sku: '', emoji: '📦', image: null };
+  const blank = { name: '', name_fr: '', category: 'cosmetics', grade: '', price: 0, cost: 0, stock: 0, sku: '', emoji: '📦', image: null };
   const [form, setForm] = useState(initial || blank);
   const [uploading, setUploading] = useState(false);
   const [autoGenerateSku, setAutoGenerateSku] = useState(false);
@@ -701,6 +707,19 @@ export function ProductForm({ open, onClose, initial }) {
         <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
         <Field label="Stock"><Input type="number" value={form.stock} onChange={set('stock')} /></Field>
       </div>
+      {form.category === 'school_materials' && (
+        <Field label="Grade / Class level">
+          <SelectInput
+            value={form.grade || ''}
+            onChange={set('grade')}
+            options={[
+              { value: '', label: '— All levels / Not specified —' },
+              ...SCHOOL_GRADES.map(g => ({ value: g, label: g })),
+            ]}
+          />
+        </Field>
+      )}
+
       {Number(form.price) > 0 && Number(form.cost) > 0 && (
         <div className="-mt-1 mb-1 text-xs text-stone-500">
           Margin: <span className="font-medium text-emerald-700">{(Number(form.price) - Number(form.cost)).toLocaleString()} FCFA</span>
