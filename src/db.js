@@ -584,8 +584,9 @@ try {
 // Guarded by migrations table so it only runs once.
 try {
   db.exec("CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY)");
-  const done = db.prepare("SELECT name FROM migrations WHERE name='invoice_prices_2026_07_29'").get();
+  const done = db.prepare("SELECT name FROM migrations WHERE name='invoice_prices_2026_07_29_v2'").get();
   if (!done) {
+    db.prepare("DELETE FROM migrations WHERE name='invoice_prices_2026_07_29'").run();
     // [name-from-invoice, unit_price, carton_total]
     const INV = [
       // ── Page 1 ─────────────────────────────────────────────────────────────
@@ -722,10 +723,20 @@ try {
       ['French Class 4 (Afric Educ)',                                               1700, 13600],
     ];
 
-    // Normalize: strip ISBN prefix, lowercase, collapse spaces
-    const norm = s => s.replace(/^\[[\d\-X]+\]\s*/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    // Normalize: strip ISBN prefix, strip accents, lowercase, collapse spaces
+    const norm = s => s
+      .replace(/^\[[\d\-X]+\]\s*/i, '')        // strip ISBN prefix
+      .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents: é→e, è→e, ê→e …
+      .replace(/\s+/g, ' ').trim().toLowerCase();
     // Strip trailing publisher suffix "(PUBLISHER)" for fuzzy match
     const base = s => norm(s).replace(/\s*\([^)]+\)\s*$/, '').trim();
+    // Manual aliases: invoice spelling → canonical base (accent-free, lowercase, no publisher)
+    const ALIASES = {
+      'a pen kills, litterature form 3': 'a pen kills, literature form 3',
+      'litterature ce 1: comment ca va benjamin': 'litterature ce1: comment ca va benjamin',
+      'litterature ce1: comment ca va benjamin': 'litterature ce1: comment ca va benjamin',
+      'benjamin is not a little boy': 'benjamin is not a little boy',
+    };
 
     const existing = db.prepare("SELECT id, name FROM products WHERE category='school_materials'").all()
       .map(p => ({ id: p.id, norm: norm(p.name), base: base(p.name) }));
@@ -761,10 +772,11 @@ try {
       let updated = 0, inserted = 0, skipped = [];
       INV.forEach(([invName, price, cost]) => {
         const invNorm = norm(invName);
-        const invBase = base(invName);
+        const invBase = ALIASES[invNorm] ?? ALIASES[base(invName)] ?? base(invName);
+        const invNormFull = ALIASES[invNorm] ?? invNorm;
 
-        // 1. Exact normalized match
-        let hit = existing.find(p => p.norm === invNorm);
+        // 1. Exact normalized match (with alias)
+        let hit = existing.find(p => p.norm === invNormFull || p.norm === invNorm);
         // 2. Match on base name (both sides stripped of publisher)
         if (!hit) hit = existing.find(p => p.base === invBase && invBase.length > 5);
         // 3. Partial — invoice base contained in product norm or vice versa
@@ -791,7 +803,7 @@ try {
       if (skipped.length) console.log('  New:', skipped.join('; '));
     });
     applyAll();
-    db.prepare("INSERT INTO migrations VALUES (?)").run('invoice_prices_2026_07_29');
+    db.prepare("INSERT OR REPLACE INTO migrations VALUES (?)").run('invoice_prices_2026_07_29_v2');
   }
 } catch (e) {
   console.warn('Invoice price migration skipped:', e.message);
