@@ -579,4 +579,222 @@ try {
   console.warn('school materials seed skipped:', e.message);
 }
 
+// ── Invoice price/cost update (Horeb Solutions, 29 Jul 2026) ─────────────────
+// unit price  → selling price;  total FCFA (after supplier discount) → cost
+// Guarded by migrations table so it only runs once.
+try {
+  db.exec("CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY)");
+  const done = db.prepare("SELECT name FROM migrations WHERE name='invoice_prices_2026_07_29'").get();
+  if (!done) {
+    // [name-from-invoice, unit_price, carton_total]
+    const INV = [
+      // ── Page 1 ─────────────────────────────────────────────────────────────
+      ['His/Géo Sciences Humaines CM1 (EDICEF)',                                  1850, 14800],
+      ['Planete Cameroun Geographie 6e/1e Annee New (Edicef)',                    4200, 16800],
+      ['Planete Cameroun Geographie 5e/2e Annee New (Edicef)',                    4300,  6880],
+      ['Planete Cameroun Geographie 4e/3e Annee New (Edicef)',                    4300, 17200],
+      ['Sciences Secondes Littéraires (CLE)',                                     3500, 14000],
+      ['Sciences 1ere Littéraires (CLE)',                                         5000, 20000],
+      ['SVT Tle D et TI (CLE)',                                                   8000, 32000],
+      ['The Lady with a beard (CLE)',                                              2500, 10000],
+      ['Mathematics Class 5 (BETCHA)',                                             1900, 15200],
+      ['English wb Class 6 (BETCHACAM)',                                           1150,  9775],
+      ['English Language Class 6 (BETCHA)',                                        1900, 15200],
+      ['Mathematics Class 6 (BETCHA)',                                             1900, 15200],
+      ['Mathematics wb Class 6 (BECHACAM)',                                        1150,  9775],
+      ['TIC Niveau 3 CM1-CM2 (Mondoux)',                                           1800, 14400],
+      ['Education a la Citoyennete 6e/5e et 1e/2e Anne New (Mondoux)',             3500, 14000],
+      ['Mathématiques 6e (Mondoux)',                                               4000, 32000],
+      ['SVTEEHB 4eme (Mondoux)',                                                   4000, 32000],
+      ['French Form 1 (Mondoux)',                                                  3600, 28800],
+      ['French Form 2 (Mondoux)',                                                  3500, 28000],
+      ['Innovative in English Book 3 (Mondoux)',                                   3600, 28800],
+      // ── Page 2 ─────────────────────────────────────────────────────────────
+      ['A Vos Maths Livret CP (NATHAN)',                                           1250, 10000],
+      ['Francais CE1 (NATHAN)',                                                    1800, 14400],
+      ['Mathematiques CE2 (NATHAN)',                                               1800, 14400],
+      ['Mathématiques CM1 (NATHAN)',                                               1900, 15200],
+      ['Francais 6eme (NATHAN)',                                                   4200, 33600],
+      ["J'Apprends le Français Livre 2 (ANUCAM)",                                 1800, 14400],
+      ['Apprenons le Français A/L (ANUCAM)',                                       4000,  6000],
+      ['Sound and Word Building Level 2 (ATEMEC)',                                 1500, 12000],
+      ['Mathematics wb Class 3 (ATEMEC)',                                          1150,  9775],
+      ['Majors en activités de langage Maternelle 2ème année (ASVA)',              1000,  7500],
+      ['Majors en Sciences SIL (ASVA)',                                            1500, 12000],
+      ['Majors en Sciences CP (ASVA)',                                             1500, 11550],
+      ['English CM1 (ASVA)',                                                       1900, 15200],
+      ['English wb CM1 (ASVA)',                                                    1150,  9775],
+      ['Majors en Mathématique 1ere A (ASVA)',                                     3500, 13475],
+      ['Majors en Philosophie Tle SES (ASVA)',                                     5000,  7700],
+      ['Majors en Mathématique Tle A (ASVA)',                                      3900, 15015],
+      ['Mon Cahier de Graphisme CP (COSMOS)',                                      1200,  9600],
+      ['Anglais CE1 (COSMOS)',                                                     1800, 14400],
+      ['Sciences et technologies CM2 (COSMOS)',                                    1800, 14400],
+      ['Champions en Francais CP Livret (Edicef)',                                 1300, 10140],
+      // ── Page 3 ─────────────────────────────────────────────────────────────
+      ['Syllabaire SIL-CP (Afric Educ)',                                           1500, 12000],
+      ['Mathematiques 4eme (Afric Educ)',                                          4500, 36000],
+      ['Coeur du Sahel. Litterature 4eme (Proximite)',                             2500, 20000],
+      ["L'art de Partager un Mari (PROXIMITE)",                                    3000,  7200],
+      ["L'Attachement au Sol Natal Litterature 4e 4ed (IFRIKIYA)",                 1900, 15200],
+      ['Mathématiques 1ère D&TI (CEPER)',                                          5500, 22000],
+      ['English wb Class 5 (LONGHORN)',                                            1150,  9775],
+      ['Physics for Secondary Schools Form 2 (LONGHORN)',                          3500, 28000],
+      ['Integrated Secondary Chemistry Form 2 (DOMINION)',                         3000, 24000],
+      ['An Integrated History Since 1850 For G.C.E. O Level 3, 4 & 5 (Quality Print)', 6000, 45000],
+      ['Standard Ordinary Level Physics (DOMINION)',                               5000, 20000],
+      ['Science and Technology Class 6 (CATWA)',                                   1800, 14400],
+      ['Fireside Tales (PENG Edition)',                                             2000, 16000],
+      ['A Time to Reconcile Litterature form 2 (PEACOCK)',                         1200,  9600],
+      ['My Cameroon & Other Poems (PENG Edition)',                                 1800, 14400],
+      ['Inclusive Education, Literature form 3 (NYAA)',                            1800, 14400],
+      ['Macbeth (New Swan Edith)',                                                  2000, 15000],
+      ['Lord of the Flies (GRACE)',                                                 2000,  8000],
+      // ── Page 4 ─────────────────────────────────────────────────────────────
+      ['French Form 4 (Mondoux)',                                                   3500, 28000],
+      ['Integrated Secondary Mathematics Form 2 (SHILOH)',                          3500, 28000],
+      ['Success in Commerce for Form 3, 4 and 5',                                  7000, 56000],
+      ['Introductory Ordinary Level Physics Form 3 (GRACE)',                        4500,  7200],
+      ['Elementary Chemistry Forms 1 (TEWA)',                                       3000, 24000],
+      ['Elementary Mathematics N2 (DOVE)',                                          1000,  8000],
+      ['The Essentials of Logic for Ordinary Level Forms 3, 4 & 5 (Grassroots)',   2500, 19250],
+      ["Geography for Competency Dev't Book 1 New 3rd ed. (GREENWORLD)",            3000, 24000],
+      ['The Patriotic Citizen Book 1 (GREENWORLD)',                                  4000, 32000],
+      ["Geography for Competency Dev't Book 2 New 3rd ed. (GREENWORLD)",            4000, 32000],
+      ['Understanding Biology for Intermediate Form 3 New 2nd ed. (GREENWORLD)',    6500, 52000],
+      ['Understanding Biology Form 4&5 Vol 1 New 4th ed. (GREENWORLD)',             8000, 64000],
+      ['Understanding Biology for Human Biology New Forms 4&5 Vol 2 (GREENWORLD)',  6500, 52000],
+      ['Citizenship Education Form 3 (CATWA)',                                      3000, 24000],
+      ['Economics For GCE O Level and ITVE Forms 3, 4 & 5 (CATWA)',               7000, 56000],
+      ['Basic Geology for Colleges Form 4 and 5 (TEWA)',                            5000, 40000],
+      // ── Page 5 (NMI — ISBN prefixes stripped by norm()) ────────────────────
+      ['Winners in English Class 4 wb (NMI)',                                       1150,  9660],
+      ['Winners in Social Studies Class 4 (NMI)',                                   1800, 14400],
+      ['Winners in Science & Tech Class 5 (NMI)',                                   1800, 11520],
+      ['Winners in Social Studies Class 6 (NMI)',                                   1850, 14800],
+      ['Les Brillants en Anglais CP Livret (NMI)',                                  1200, 10080],
+      ['Les Brillants en Anglais CE2 Livret (NMI)',                                 1150,  9660],
+      ['Brillants Anglais CE2 (NMI)',                                               1800, 14400],
+      ['Prime English Book 1 (NMI)',                                                3800, 30400],
+      ['Prime Physics Book 1 (NMI)',                                                3200, 25600],
+      ['Prime English Book 2 (NMI)',                                                3800, 30400],
+      ['A Pen Kills, Litterature Form 3 (NMI)',                                     2500, 20000],
+      ['Prime Mathematics Book 3 (NMI)',                                            4200, 33600],
+      ['Prime Computer Science Book 3 (NMI)',                                       4000, 32000],
+      ['Prime Mathematics Book 4 (NMI)',                                            5500, 44000],
+      ['Prime English Book 4 (NMI)',                                                4200, 33600],
+      ['Prime Physics O Level Book 5 (NMI)',                                        5000, 20000],
+      // ── Page 6 (Afric Educ / Nathan) ───────────────────────────────────────
+      ['French Class 5 (Afric Educ)',                                               1900, 15200],
+      ['Je pratique le dessin et le coloriage 1 (Afric Educ)',                      1000,  8000],
+      ['Je pratique le dessin et le coloriage 2 (Afric Educ)',                      1000,  8000],
+      ['Litterature CE 1: Comment ca va Benjamin (Afric Educ)',                     1000,  8000],
+      ['Mathematique Livret CM2 (Afric Educ)',                                      1200, 10200],
+      ['French form 5 (Afric Educ)',                                                4000, 32000],
+      ['Computer science form 5 (Afric Educ)',                                      5000, 40000],
+      ['Anglais 6eme (Afric Educ)',                                                 5000, 40000],
+      ['Sciences 6eme (Afric Educ)',                                                5000, 40000],
+      ['Français 5eme (Afric Educ)',                                                4500, 36000],
+      ['Francais 4eme (Afric Educ)',                                                5000, 40000],
+      ['Francais 3eme (Afric Educ)',                                                5000, 40000],
+      ['Mathematiques 3eme (Afric Educ)',                                           4500, 36000],
+      ['SVTEEHB 3eme (Afric Educ)',                                                 5000, 40000],
+      ['A Vos Maths sil (NATHAN)',                                                  1500, 11250],
+      ['A Vos Maths Livret SIL (NATHAN)',                                           1000,  8000],
+      ['Vivons Ensemble (sil/cp) (NATHAN)',                                         1500, 11550],
+      ['A Vos Maths CP (NATHAN)',                                                   1500, 11250],
+      // ── Page 7 (NMI advanced) ───────────────────────────────────────────────
+      ['Mastering English Lower and Upper Sixth (NMI)',                             5500,  8800],
+      ["L'Eveil Informatique 5ème (NMI)",                                           4000, 32000],
+      ["Erwachen l'Eveil Deutsch 4ème (NMI)",                                       4500, 36000],
+      ["L'Eveil Physique Chimie et Technologie 4ème (NMI)",                         4200, 33600],
+      ["Erwachen l'Eveil Deutsch 3ème (NMI)",                                       4500, 36000],
+      ["L'Eveil Anglais 3ème (NMI)",                                                4500, 36000],
+      ["L'Excellence en Philosophie 2nde (NMI)",                                    4000, 32000],
+      ["L'Excellence en Informatique 2nde A et C (NMI)",                            3100, 24800],
+      ["L'Excellence en SVT 1ère C (NMI)",                                          6500, 52000],
+      ["L'Excellence en Physique 1ère D et C (NMI)",                                5000, 40000],
+      ["L'Excellence en Chimie 1ère D et C (NMI)",                                  4500, 36000],
+      ["L'Excellence en Chimie Tle C et D (NMI)",                                   5500, 44000],
+      ['French Class 3 (Afric Educ)',                                               1700, 13600],
+      ['How are you Benjamin? (AFRICA EDUCATION)',                                  1000,  8000],
+      ['Benjamin is not a little boy (AFRIC EDUC)',                                 1000,  8000],
+      ['French Class 4 (Afric Educ)',                                               1700, 13600],
+    ];
+
+    // Normalize: strip ISBN prefix, lowercase, collapse spaces
+    const norm = s => s.replace(/^\[[\d\-X]+\]\s*/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    // Strip trailing publisher suffix "(PUBLISHER)" for fuzzy match
+    const base = s => norm(s).replace(/\s*\([^)]+\)\s*$/, '').trim();
+
+    const existing = db.prepare("SELECT id, name FROM products WHERE category='school_materials'").all()
+      .map(p => ({ id: p.id, norm: norm(p.name), base: base(p.name) }));
+
+    const upd = db.prepare('UPDATE products SET price=?, cost=? WHERE id=?');
+
+    // guess grade from book name for newly inserted books
+    const guessGrade = name => {
+      const n = name.toLowerCase();
+      if (/\bmaternelle\b/.test(n)) return 'Maternelle';
+      if (/\bsil\b/.test(n) && !/\bsecondary\b/.test(n)) return 'Maternelle';
+      if (/\bcp\b/.test(n) && !/computer/.test(n)) return 'CP';
+      if (/\bce1\b/.test(n)) return 'CE1';
+      if (/\bce2\b/.test(n)) return 'CE2';
+      if (/\bcm1\b/.test(n)) return 'CM1';
+      if (/\bcm2\b/.test(n)) return 'CM2';
+      if (/6e?me|class 6|form 6|6e\/|\/6e|\b6eme\b|\bsixth\b/.test(n)) return '6ème';
+      if (/5e?me|class 5|form 5|5e\/|\/5e/.test(n)) return '5ème';
+      if (/4e?me|class 4|form 4|4e\/|\/4e/.test(n)) return '4ème';
+      if (/3e?me|class 3|form 3/.test(n)) return '3ème';
+      if (/2nde|seconde|form 2|class 2/.test(n)) return '2nde';
+      if (/1.re|1ere|form 1|class 1/.test(n)) return '1ère';
+      if (/terminale|tle /.test(n)) return 'Terminale';
+      if (/universit/.test(n)) return 'Université';
+      return null;
+    };
+
+    const ins = db.prepare(
+      "INSERT INTO products (name,name_fr,category,grade,price,cost,discount,stock,sku,emoji,image) VALUES (?,?,?,?,?,?,0,0,?,?,null)"
+    );
+
+    const applyAll = db.transaction(() => {
+      let updated = 0, inserted = 0, skipped = [];
+      INV.forEach(([invName, price, cost]) => {
+        const invNorm = norm(invName);
+        const invBase = base(invName);
+
+        // 1. Exact normalized match
+        let hit = existing.find(p => p.norm === invNorm);
+        // 2. Match on base name (both sides stripped of publisher)
+        if (!hit) hit = existing.find(p => p.base === invBase && invBase.length > 5);
+        // 3. Partial — invoice base contained in product norm or vice versa
+        if (!hit && invBase.length > 8) {
+          const candidates = existing.filter(p =>
+            p.norm.includes(invBase) || invBase.includes(p.base)
+          );
+          if (candidates.length === 1) hit = candidates[0];
+        }
+
+        if (hit) {
+          upd.run(price, cost, hit.id);
+          updated++;
+        } else {
+          // Insert as new product
+          const grade = guessGrade(invName);
+          const sku = 'INV-' + norm(invName).slice(0, 6).replace(/\s/g, '').toUpperCase() + '-' + Date.now().toString(36).slice(-4);
+          ins.run(invName, '', 'school_materials', grade, price, cost, sku, '📚');
+          inserted++;
+          skipped.push(invName);
+        }
+      });
+      console.log(`• Invoice prices applied: ${updated} updated, ${inserted} new products added`);
+      if (skipped.length) console.log('  New:', skipped.join('; '));
+    });
+    applyAll();
+    db.prepare("INSERT INTO migrations VALUES (?)").run('invoice_prices_2026_07_29');
+  }
+} catch (e) {
+  console.warn('Invoice price migration skipped:', e.message);
+}
+
 export default db;
