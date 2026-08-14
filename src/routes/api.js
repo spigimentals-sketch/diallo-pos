@@ -507,6 +507,54 @@ r.get('/orders', h((req, res) => {
   res.json(orders);
 }));
 
+r.get('/orders/:id', requireAuth, h((req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  order.items = db.prepare('SELECT * FROM order_items WHERE orderId=?').all(order.id);
+  res.json(order);
+}));
+
+r.put('/orders/:id', requireAuth, requireRole('admin'), h((req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  const { items: newItems, discount = 0, method, note } = req.body;
+  const oldItems = db.prepare('SELECT * FROM order_items WHERE orderId=?').all(order.id);
+
+  // Reconcile stock: build maps of productId → qty
+  const oldQty = {};
+  oldItems.forEach(i => { if (i.productId) oldQty[i.productId] = (oldQty[i.productId] || 0) + i.qty; });
+  const newQty = {};
+  (newItems || []).forEach(i => { if (i.productId) newQty[i.productId] = (newQty[i.productId] || 0) + i.qty; });
+
+  // Union of all productIds touched
+  const allIds = new Set([...Object.keys(oldQty), ...Object.keys(newQty)]);
+  const adjustStock = db.prepare('UPDATE products SET stock = stock + ? WHERE id=?');
+  allIds.forEach(pid => {
+    const diff = (oldQty[pid] || 0) - (newQty[pid] || 0); // positive → return to stock
+    if (diff !== 0) adjustStock.run(diff, Number(pid));
+  });
+
+  // Recalculate totals
+  const subtotal = (newItems || []).reduce((s, i) => s + i.price * i.qty, 0);
+  const disc = Number(discount) || 0;
+  const tva = Math.round((subtotal - disc) * 0.0748); // same TVA formula as checkout
+  const total = subtotal - disc + tva;
+
+  // Replace order header
+  db.prepare('UPDATE orders SET subtotal=?,discount=?,tva=?,total=?,method=? WHERE id=?')
+    .run(subtotal, disc, tva, total, method || order.method, order.id);
+
+  // Replace items
+  db.prepare('DELETE FROM order_items WHERE orderId=?').run(order.id);
+  const ins = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty) VALUES (?,?,?,?,?,?,?)');
+  (newItems || []).forEach(i => ins.run(order.id, i.productId || null, i.name, i.sku || '', i.price, i.cost || 0, i.qty));
+
+  const updated = db.prepare('SELECT * FROM orders WHERE id=?').get(order.id);
+  updated.items = db.prepare('SELECT * FROM order_items WHERE orderId=?').all(order.id);
+  res.json(updated);
+}));
+
 // ---------------- DISCOUNT REQUESTS ----------------
 // Cashier submits a discount request; manager/admin approves or rejects it
 // before the order is finalised and the receipt prints.
