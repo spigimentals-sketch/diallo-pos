@@ -535,15 +535,14 @@ r.put('/orders/:id', requireAuth, requireRole('admin'), h((req, res) => {
     if (diff !== 0) adjustStock.run(diff, Number(pid));
   });
 
-  // Recalculate totals
+  // Recalculate totals (no TVA on manual edits)
   const subtotal = (newItems || []).reduce((s, i) => s + i.price * i.qty, 0);
   const disc = Number(discount) || 0;
-  const tva = Math.round((subtotal - disc) * 0.0748); // same TVA formula as checkout
-  const total = subtotal - disc + tva;
+  const total = subtotal - disc;
 
   // Replace order header
   db.prepare('UPDATE orders SET subtotal=?,discount=?,tva=?,total=?,method=? WHERE id=?')
-    .run(subtotal, disc, tva, total, method || order.method, order.id);
+    .run(subtotal, disc, 0, total, method || order.method, order.id);
 
   // Replace items
   db.prepare('DELETE FROM order_items WHERE orderId=?').run(order.id);
