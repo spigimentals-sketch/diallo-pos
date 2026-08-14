@@ -252,7 +252,7 @@ const useShifts = () => useContext(ShiftContext);
 // existing listing without being the one who adds new catalog items.
 const ROLE_ACCESS = {
   admin:   { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true,
-             seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, addProducts: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
+             seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, addProducts: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false, admin: true },
   manager: { home: true, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, addProducts: false, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
   cashier: { home: true, pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false,
@@ -2005,7 +2005,7 @@ const ProductsPanel = () => {
   const { t } = useT();
   const { can } = useRole();
   const { toast } = useToast();
-  const { products: liveProducts, online, settings } = useData();
+  const { products: liveProducts, online, settings, patch } = useData();
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
   const categoryList = useCategoryList();
@@ -2014,6 +2014,10 @@ const ProductsPanel = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [scanOpen, setScanOpen] = useState(false);
+  const [selected, setSelected] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [editingCost, setEditingCost] = useState(null); // { id, value }
+  const [editingPrice, setEditingPrice] = useState(null); // { id, value }
   const filtered = products.filter(p => {
     if (filter === 'low' && p.stock >= lowStockThreshold) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
@@ -2026,6 +2030,54 @@ const ProductsPanel = () => {
   };
   const openAdd = () => { setEditing(null); setModalOpen(true); };
   const openEdit = (p) => { setEditing(p); setModalOpen(true); };
+
+  const allSelected = filtered.length > 0 && filtered.every(p => selected.has(p.id));
+  const someSelected = selected.size > 0;
+  const toggleSelect = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(filtered.map(p => p.id)));
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selected.size} product${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    setDeleting(true);
+    const ids = [...selected];
+    try {
+      await Promise.all(ids.map(id => api.deleteProduct(id)));
+      patch('products', list => list.filter(p => !ids.includes(p.id)));
+      setSelected(new Set());
+      toast(`Deleted ${ids.length} product${ids.length === 1 ? '' : 's'}`);
+    } catch (e) { toast(e.message || 'Delete failed', 'error'); }
+    setDeleting(false);
+  };
+  const handleDeleteOne = async (p) => {
+    if (!window.confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
+    try {
+      await api.deleteProduct(p.id);
+      patch('products', list => list.filter(x => x.id !== p.id));
+      setSelected(prev => { const next = new Set(prev); next.delete(p.id); return next; });
+      toast(`Deleted ${p.name}`);
+    } catch (e) { toast(e.message || 'Delete failed', 'error'); }
+  };
+  const saveCost = async (p, rawValue) => {
+    const newCost = parseFloat(rawValue);
+    setEditingCost(null);
+    if (isNaN(newCost) || newCost === p.cost) return;
+    try {
+      const updated = await api.updateProduct(p.id, { ...p, cost: newCost });
+      patch('products', list => list.map(x => x.id === p.id ? updated : x));
+    } catch (e) { toast(e.message || 'Failed to save cost', 'error'); }
+  };
+  const savePrice = async (p, rawValue) => {
+    const newPrice = parseFloat(rawValue);
+    setEditingPrice(null);
+    if (isNaN(newPrice) || newPrice === p.price) return;
+    try {
+      const updated = await api.updateProduct(p.id, { ...p, price: newPrice });
+      patch('products', list => list.map(x => x.id === p.id ? updated : x));
+    } catch (e) { toast(e.message || 'Failed to save price', 'error'); }
+  };
   // Scan handler: shared by both the modal and the autosensing listener.
   // Existing SKU → show in search results. New barcode → open Add form pre-filled.
   const handleScanToAdd = (raw) => {
@@ -2124,14 +2176,32 @@ const ProductsPanel = () => {
           )}
         </div>
 
+        {someSelected && can.editInventory && (
+          <div className="px-5 py-2.5 bg-rose-50 border-b border-rose-200 flex items-center gap-3">
+            <span className="text-sm text-rose-800 font-medium">{selected.size} selected</span>
+            <button onClick={() => setSelected(new Set())} className="text-xs text-rose-600 hover:text-rose-900">Clear</button>
+            <button onClick={handleBulkDelete} disabled={deleting}
+              className="ml-auto flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-rose-700 text-white rounded-lg hover:bg-rose-800 disabled:opacity-50">
+              <Trash2 size={13} /> {deleting ? 'Deleting…' : `Delete ${selected.size}`}
+            </button>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+              {can.editInventory && (
+                <th className="pl-5 pr-2 py-3 w-8">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                    className="h-4 w-4 rounded border-stone-300 text-rose-600 accent-rose-600 cursor-pointer" />
+                </th>
+              )}
               <th className="px-5 py-3">{t('product')}</th>
               <th className="px-3 py-3">SKU</th>
               <th className="px-3 py-3">{t('category')}</th>
               <th className="px-3 py-3">{t('price')}</th>
+              <th className="px-3 py-3">Cost</th>
               <th className="px-3 py-3">{t('stock')}</th>
               <th className="px-3 py-3">{t('status')}</th>
               <th className="px-5 py-3"></th>
@@ -2141,8 +2211,15 @@ const ProductsPanel = () => {
             {filtered.map(p => {
               const cat = categoryList.find(c => c.id === p.category);
               const lowStock = p.stock < lowStockThreshold;
+              const isSelected = selected.has(p.id);
               return (
-                <tr key={p.id} className="border-b border-stone-100 hover:bg-stone-50/50">
+                <tr key={p.id} className={`border-b border-stone-100 hover:bg-stone-50/50 ${isSelected ? 'bg-rose-50/40' : ''}`}>
+                  {can.editInventory && (
+                    <td className="pl-5 pr-2 py-3 w-8">
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(p.id)}
+                        className="h-4 w-4 rounded border-stone-300 text-rose-600 accent-rose-600 cursor-pointer" />
+                    </td>
+                  )}
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center text-xl overflow-hidden">{p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}</div>
@@ -2151,7 +2228,52 @@ const ProductsPanel = () => {
                   </td>
                   <td className="px-3 py-3 text-xs font-mono text-stone-500">{p.sku}</td>
                   <td className="px-3 py-3"><span className="text-xs text-stone-700">{cat ? cat.label : p.category}</span></td>
-                  <td className="px-3 py-3 text-sm font-medium text-stone-900">{fmt(p.price)}</td>
+                  <td className="px-3 py-3">
+                    {can.editInventory && editingPrice?.id === p.id ? (
+                      <input
+                        type="number"
+                        autoFocus
+                        defaultValue={editingPrice.value}
+                        onBlur={e => savePrice(p, e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') e.target.blur();
+                          if (e.key === 'Escape') setEditingPrice(null);
+                        }}
+                        className="w-24 px-2 py-1 text-sm border border-emerald-400 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-emerald-50"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => can.editInventory && setEditingPrice({ id: p.id, value: p.price || 0 })}
+                        className={`text-sm font-medium text-stone-900 ${can.editInventory ? 'hover:text-emerald-700 hover:underline cursor-pointer' : 'cursor-default'}`}
+                        title={can.editInventory ? 'Click to edit price' : undefined}
+                      >
+                        {fmt(p.price)}
+                      </button>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
+                    {can.editInventory && editingCost?.id === p.id ? (
+                      <input
+                        type="number"
+                        autoFocus
+                        defaultValue={editingCost.value}
+                        onBlur={e => saveCost(p, e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') e.target.blur();
+                          if (e.key === 'Escape') setEditingCost(null);
+                        }}
+                        className="w-24 px-2 py-1 text-sm border border-amber-400 rounded focus:outline-none focus:ring-1 focus:ring-amber-500 bg-amber-50"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => can.editInventory && setEditingCost({ id: p.id, value: p.cost || 0 })}
+                        className={`text-sm text-stone-600 ${can.editInventory ? 'hover:text-amber-700 hover:underline cursor-pointer' : 'cursor-default'}`}
+                        title={can.editInventory ? 'Click to edit cost' : undefined}
+                      >
+                        {p.cost > 0 ? fmt(p.cost) : <span className="text-stone-300 text-xs">— set cost</span>}
+                      </button>
+                    )}
+                  </td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-stone-900">{p.stock}</span>
@@ -2172,7 +2294,14 @@ const ProductsPanel = () => {
                     )}
                   </td>
                   <td className="px-5 py-3 text-right">
-                    {can.editInventory && <button onClick={() => openEdit(p)} className="text-xs text-stone-500 hover:text-stone-900">{t('edit')}</button>}
+                    {can.editInventory && (
+                      <div className="flex items-center justify-end gap-3">
+                        <button onClick={() => openEdit(p)} className="text-xs text-stone-500 hover:text-stone-900">{t('edit')}</button>
+                        <button onClick={() => handleDeleteOne(p)} className="text-stone-300 hover:text-rose-600 transition-colors" title="Delete">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               );
@@ -2870,6 +2999,174 @@ const CustomersView = () => {
 };
 
 // ============ REPORTS ============
+const SaleEditModal = ({ orderId, open, onClose, onSaved }) => {
+  const { toast } = useToast();
+  const { products: liveProducts } = useData();
+  const products = liveProducts || [];
+  const [order, setOrder] = useState(null);
+  const [items, setItems] = useState([]);
+  const [discount, setDiscount] = useState(0);
+  const [method, setMethod] = useState('cash');
+  const [saving, setSaving] = useState(false);
+  const [addSearch, setAddSearch] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+
+  useEffect(() => {
+    if (!open || !orderId) return;
+    setOrder(null); setShowAdd(false); setAddSearch('');
+    api.getOrder(orderId).then(o => {
+      setOrder(o);
+      setItems(o.items.map(i => ({ ...i })));
+      setDiscount(o.discount || 0);
+      setMethod(o.method || 'cash');
+    }).catch(e => toast(e.message || 'Failed to load order', 'error'));
+  }, [open, orderId]);
+
+  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
+  const tva = Math.round((subtotal - Number(discount)) * 0.0748);
+  const total = subtotal - Number(discount) + tva;
+
+  const setQty = (idx, val) => {
+    const q = parseInt(val);
+    if (isNaN(q) || q < 1) return;
+    setItems(it => it.map((x, i) => i === idx ? { ...x, qty: q } : x));
+  };
+  const setPrice = (idx, val) => {
+    const p = parseFloat(val);
+    if (isNaN(p) || p < 0) return;
+    setItems(it => it.map((x, i) => i === idx ? { ...x, price: p } : x));
+  };
+  const removeItem = (idx) => setItems(it => it.filter((_, i) => i !== idx));
+  const addProduct = (p) => {
+    const existing = items.findIndex(i => i.productId === p.id);
+    if (existing >= 0) {
+      setItems(it => it.map((x, i) => i === existing ? { ...x, qty: x.qty + 1 } : x));
+    } else {
+      setItems(it => [...it, { productId: p.id, name: p.name, sku: p.sku || '', price: p.price, cost: p.cost || 0, qty: 1 }]);
+    }
+    setAddSearch(''); setShowAdd(false);
+  };
+
+  const save = async () => {
+    if (items.length === 0) { toast('Sale must have at least one item', 'error'); return; }
+    setSaving(true);
+    try {
+      await api.updateOrder(orderId, { items, discount: Number(discount), method });
+      toast('Sale updated');
+      onSaved?.();
+      onClose();
+    } catch (e) { toast(e.message || 'Failed to save', 'error'); }
+    setSaving(false);
+  };
+
+  const matchingProducts = addSearch.length > 1
+    ? products.filter(p => p.name.toLowerCase().includes(addSearch.toLowerCase()) || (p.sku || '').toLowerCase().includes(addSearch.toLowerCase())).slice(0, 6)
+    : [];
+
+  if (!open) return null;
+  return (
+    <Modal open={open} onClose={onClose} title={order ? `Edit Sale · ${order.invoiceNo}` : 'Edit Sale'}>
+      {!order ? (
+        <div className="text-center text-sm text-stone-400 py-10">Loading…</div>
+      ) : (<>
+        <div className="text-xs text-stone-500 mb-4">
+          {new Date(order.createdAt).toLocaleString()} · Cashier: {order.cashier || '—'}
+        </div>
+
+        {/* Items table */}
+        <div className="space-y-1.5 mb-4">
+          {items.map((it, idx) => (
+            <div key={idx} className="flex items-center gap-2 bg-stone-50 rounded-lg px-3 py-2">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-stone-900 truncate">{it.name}</div>
+                <div className="text-xs text-stone-400">{it.sku}</div>
+              </div>
+              <div className="flex items-center gap-1">
+                <label className="text-[10px] text-stone-400">Qty</label>
+                <input type="number" min="1" value={it.qty} onChange={e => setQty(idx, e.target.value)}
+                  className="w-14 px-1.5 py-1 text-sm border border-stone-200 rounded text-center focus:outline-none focus:border-emerald-500 bg-white" />
+              </div>
+              <div className="flex items-center gap-1">
+                <label className="text-[10px] text-stone-400">Price</label>
+                <input type="number" min="0" value={it.price} onChange={e => setPrice(idx, e.target.value)}
+                  className="w-24 px-1.5 py-1 text-sm border border-stone-200 rounded text-right focus:outline-none focus:border-emerald-500 bg-white" />
+              </div>
+              <div className="w-24 text-right text-sm font-medium text-stone-900">{fmt(it.price * it.qty)}</div>
+              <button onClick={() => removeItem(idx)} className="text-stone-300 hover:text-rose-500 flex-shrink-0">
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Add item */}
+        {!showAdd ? (
+          <button onClick={() => setShowAdd(true)}
+            className="w-full py-2 text-xs text-stone-500 border border-dashed border-stone-300 rounded-lg hover:border-emerald-400 hover:text-emerald-700 flex items-center justify-center gap-1.5 mb-4">
+            <Plus size={13} /> Add item
+          </button>
+        ) : (
+          <div className="mb-4 relative">
+            <input autoFocus value={addSearch} onChange={e => setAddSearch(e.target.value)}
+              placeholder="Search product to add…"
+              className="w-full px-3 py-2 border border-emerald-400 rounded-lg text-sm focus:outline-none bg-white" />
+            {matchingProducts.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-stone-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                {matchingProducts.map(p => (
+                  <button key={p.id} onClick={() => addProduct(p)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50 flex items-center justify-between">
+                    <span>{p.name}</span>
+                    <span className="text-xs text-stone-500">{fmt(p.price)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={() => { setShowAdd(false); setAddSearch(''); }}
+              className="absolute right-2 top-2 text-stone-400 hover:text-stone-700"><X size={14} /></button>
+          </div>
+        )}
+
+        {/* Totals */}
+        <div className="border-t border-stone-100 pt-3 mb-4 space-y-1.5">
+          <div className="flex justify-between text-sm">
+            <span className="text-stone-500">Subtotal</span>
+            <span className="font-medium">{fmt(subtotal)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-stone-500">Discount</span>
+            <input type="number" min="0" value={discount} onChange={e => setDiscount(e.target.value)}
+              className="w-28 px-2 py-0.5 text-sm border border-stone-200 rounded text-right focus:outline-none focus:border-emerald-500 bg-white" />
+          </div>
+          <div className="flex justify-between text-sm text-stone-500">
+            <span>TVA (7.48%)</span><span>{fmt(tva)}</span>
+          </div>
+          <div className="flex justify-between text-sm font-semibold text-stone-900">
+            <span>Total</span><span>{fmt(total)}</span>
+          </div>
+        </div>
+
+        {/* Payment method */}
+        <div className="flex gap-2 mb-5">
+          {[['cash','Cash'],['mobile','Mobile Money'],['card','Card']].map(([v,l]) => (
+            <button key={v} onClick={() => setMethod(v)}
+              className={`flex-1 py-1.5 text-xs font-medium rounded-lg border ${method === v ? 'bg-emerald-900 text-white border-emerald-900' : 'border-stone-200 text-stone-600 hover:bg-stone-50'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 text-sm text-stone-600 hover:bg-stone-100 rounded-lg">Cancel</button>
+          <button onClick={save} disabled={saving}
+            className="flex-1 py-2 bg-emerald-900 text-white rounded-lg text-sm font-medium hover:bg-emerald-800 disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </>)}
+    </Modal>
+  );
+};
+
 const ReportsView = () => {
   const { t } = useT();
   const { can } = useRole();
@@ -2880,6 +3177,11 @@ const ReportsView = () => {
   const today = new Date().toISOString().slice(0, 10);
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
+  const [editOrderId, setEditOrderId] = useState(null);
+  const [recentOrders, setRecentOrders] = useState([]);
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
+
+  const loadOrders = () => api.getOrders().then(setRecentOrders).catch(() => {}).finally(() => setOrdersLoaded(true));
   const [range, setRange] = useState(null);
   const [zData, setZData] = useState(null);
   const [pnl, setPnl] = useState(null);
@@ -2910,7 +3212,7 @@ const ReportsView = () => {
 
   useEffect(() => {
     if (!online) return;
-    runRange(); runZ();
+    runRange(); runZ(); loadOrders();
     api.pnlTrend(6).then(setPnlTrend).catch(() => {});
     api.salesReport(7).then(r => setWeeklySales((r.daily || []).map(d => ({
       ...d, label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }),
@@ -3264,6 +3566,65 @@ const ReportsView = () => {
           ))}
         </div>
       </div>
+
+      {/* ---- Recent Sales — admin can edit any transaction ---- */}
+      {can.admin && (
+        <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+          <div className="p-5 border-b border-stone-200/80 flex items-center justify-between">
+            <div>
+              <h3 className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Recent Sales</h3>
+              <p className="text-xs text-stone-500 mt-0.5">Click Edit to correct an entry — stock is automatically reconciled.</p>
+            </div>
+            <button onClick={loadOrders} className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg hover:bg-stone-50 flex items-center gap-1.5">
+              <RefreshCw size={12} /> Refresh
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-widest text-stone-500 font-medium border-b border-stone-200/80">
+                  <th className="px-5 py-3">Invoice</th>
+                  <th className="px-3 py-3">Date</th>
+                  <th className="px-3 py-3">Cashier</th>
+                  <th className="px-3 py-3">Method</th>
+                  <th className="px-3 py-3 text-right">Total</th>
+                  <th className="px-5 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {!ordersLoaded ? (
+                  <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-stone-400">Loading…</td></tr>
+                ) : recentOrders.length === 0 ? (
+                  <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-stone-400">No sales yet.</td></tr>
+                ) : recentOrders.slice(0, 100).map(o => (
+                  <tr key={o.id} className="border-b border-stone-100 hover:bg-stone-50/50">
+                    <td className="px-5 py-3 text-sm font-mono text-stone-700">{o.invoiceNo}</td>
+                    <td className="px-3 py-3 text-xs text-stone-600">{new Date(o.createdAt).toLocaleString()}</td>
+                    <td className="px-3 py-3 text-sm text-stone-700">{o.cashier || '—'}</td>
+                    <td className="px-3 py-3 text-xs">
+                      <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 capitalize">{o.method || '—'}</span>
+                    </td>
+                    <td className="px-3 py-3 text-sm font-semibold text-stone-900 text-right">{fmt(o.total)}</td>
+                    <td className="px-5 py-3 text-right">
+                      <button onClick={() => setEditOrderId(o.id)}
+                        className="text-xs text-amber-700 hover:text-amber-900 font-medium flex items-center gap-1 ml-auto">
+                        <Edit2 size={12} /> Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <SaleEditModal
+        orderId={editOrderId}
+        open={!!editOrderId}
+        onClose={() => setEditOrderId(null)}
+        onSaved={loadOrders}
+      />
     </div>
   );
 };

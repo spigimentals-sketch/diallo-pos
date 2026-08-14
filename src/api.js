@@ -92,6 +92,8 @@ export const api = {
   // orders / checkout
   createOrder: (o) => req('POST', '/orders', o),
   getOrders: () => req('GET', '/orders'),
+  getOrder: (id) => req('GET', `/orders/${id}`),
+  updateOrder: (id, data) => req('PUT', `/orders/${id}`, data),
   // settings
   getSettings: () => req('GET', '/settings'),
   saveSettings: (s) => req('PUT', '/settings', s),

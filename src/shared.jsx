@@ -344,6 +344,13 @@ export function ProductForm({ open, onClose, initial }) {
   const [newCatName, setNewCatName] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
+  // Bulk purchase calculator
+  const [bulkTotal, setBulkTotal] = useState('');
+  const [bulkQty, setBulkQty] = useState('');
+  const bulkUnitCost = bulkTotal && bulkQty && Number(bulkQty) > 0
+    ? Math.round(Number(bulkTotal) / Number(bulkQty))
+    : null;
+
   // Camera capture state
   const [showCamera, setShowCamera]   = useState(false);
   const [snapPreview, setSnapPreview] = useState(null); // data URL of captured frame
@@ -706,6 +713,34 @@ export function ProductForm({ open, onClose, initial }) {
         <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
         <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
         <Field label="Stock"><Input type="number" value={form.stock} onChange={set('stock')} /></Field>
+      </div>
+
+      {/* Bulk purchase calculator */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+        <div className="text-xs font-semibold text-amber-800 uppercase tracking-wider">📦 Cost Calculator</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-stone-500 mb-1">Carton price (FCFA)</label>
+            <Input type="number" value={bulkTotal} onChange={e => setBulkTotal(e.target.value)} placeholder="e.g. 45 000" />
+          </div>
+          <div>
+            <label className="block text-xs text-stone-500 mb-1">Books per carton</label>
+            <Input type="number" value={bulkQty} onChange={e => setBulkQty(e.target.value)} placeholder="e.g. 30" />
+          </div>
+        </div>
+        {bulkUnitCost != null && (
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <div className="text-sm">
+              <span className="text-stone-500">Unit cost: </span>
+              <span className="font-semibold text-amber-900">{bulkUnitCost.toLocaleString('fr-FR')} FCFA</span>
+            </div>
+            <button type="button"
+              onClick={() => { setForm(f => ({ ...f, cost: bulkUnitCost })); setBulkTotal(''); setBulkQty(''); }}
+              className="px-4 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-shrink-0">
+              Apply to cost
+            </button>
+          </div>
+        )}
       </div>
       {form.category === 'school_materials' && (
         <Field label="Grade / Class level">
