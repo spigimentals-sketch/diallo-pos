@@ -698,6 +698,26 @@ r.post('/maintenance/clear-activity', requireAuth, requireRole('admin'), h((req,
   res.json({ ok: true });
 }));
 
+// Admin only: delete today's orders and restore the stock they consumed.
+// "Today" matches the same UTC-date slice the Dashboard uses for its KPIs.
+r.post('/maintenance/clear-today', requireAuth, requireRole('admin'), h((req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const tx = db.transaction(() => {
+    const soldToday = db.prepare(
+      "SELECT productId, SUM(qty) AS qty FROM order_items WHERE productId IS NOT NULL AND orderId IN (SELECT id FROM orders WHERE substr(createdAt,1,10)=?) GROUP BY productId"
+    ).all(today);
+    const restock = db.prepare('UPDATE products SET stock = stock + ? WHERE id=?');
+    for (const row of soldToday) restock.run(row.qty, row.productId);
+
+    db.prepare("DELETE FROM order_items WHERE orderId IN (SELECT id FROM orders WHERE substr(createdAt,1,10)=?)").run(today);
+    db.prepare("DELETE FROM stock_movements WHERE substr(date,1,10)=?").run(today);
+    const { changes } = db.prepare("DELETE FROM orders WHERE substr(createdAt,1,10)=?").run(today);
+    return changes;
+  });
+  const deleted = tx();
+  res.json({ ok: true, ordersDeleted: deleted });
+}));
+
 // ---------------- REPORTS ----------------
 // Simple aggregations the front-end can render or download.
 // `totals` is scoped to TODAY (it powers the Dashboard's "Today's sales" KPI
