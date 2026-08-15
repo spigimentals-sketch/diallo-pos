@@ -3023,8 +3023,7 @@ const SaleEditModal = ({ orderId, open, onClose, onSaved }) => {
   }, [open, orderId]);
 
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const tva = Math.round((subtotal - Number(discount)) * 0.0748);
-  const total = subtotal - Number(discount) + tva;
+  const total = subtotal - Number(discount);
 
   const setQty = (idx, val) => {
     const q = parseInt(val);
@@ -3136,9 +3135,6 @@ const SaleEditModal = ({ orderId, open, onClose, onSaved }) => {
             <span className="text-stone-500">Discount</span>
             <input type="number" min="0" value={discount} onChange={e => setDiscount(e.target.value)}
               className="w-28 px-2 py-0.5 text-sm border border-stone-200 rounded text-right focus:outline-none focus:border-emerald-500 bg-white" />
-          </div>
-          <div className="flex justify-between text-sm text-stone-500">
-            <span>TVA (7.48%)</span><span>{fmt(tva)}</span>
           </div>
           <div className="flex justify-between text-sm font-semibold text-stone-900">
             <span>Total</span><span>{fmt(total)}</span>
