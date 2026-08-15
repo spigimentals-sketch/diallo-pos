@@ -579,14 +579,29 @@ try {
   console.warn('school materials seed skipped:', e.message);
 }
 
+// ── Fix: zero out school materials costs that were mistakenly set to the
+// carton total instead of the per-unit cost. The invoice total (e.g. 14 800 FCFA
+// for a carton of 8) was stored as cost per unit, making every book sale
+// show a huge loss. Reset all school_materials costs to 0 so profit is
+// not negative; owner can set real per-unit costs with the inline editor.
+try {
+  db.exec("CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY)");
+  const alreadyFixed = db.prepare("SELECT name FROM migrations WHERE name='fix_school_costs_2026_08'").get();
+  if (!alreadyFixed) {
+    const n = db.prepare("UPDATE products SET cost=0 WHERE category='school_materials' AND cost > price").run().changes;
+    db.prepare("INSERT OR IGNORE INTO migrations VALUES (?)").run('fix_school_costs_2026_08');
+    if (n > 0) console.log(`• Fixed ${n} school materials with inflated cost → reset to 0`);
+  }
+} catch (e) { console.warn('school cost fix skipped:', e.message); }
+
 // ── Invoice price/cost update (Horeb Solutions, 29 Jul 2026) ─────────────────
-// unit price  → selling price;  total FCFA (after supplier discount) → cost
+// unit price  → selling price only (total FCFA is carton price, not per-unit cost)
 // Guarded by migrations table so it only runs once.
 try {
   db.exec("CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY)");
-  const done = db.prepare("SELECT name FROM migrations WHERE name='invoice_prices_2026_07_29_v2'").get();
+  const done = db.prepare("SELECT name FROM migrations WHERE name='invoice_prices_2026_07_29_v3'").get();
   if (!done) {
-    db.prepare("DELETE FROM migrations WHERE name='invoice_prices_2026_07_29'").run();
+    db.prepare("DELETE FROM migrations WHERE name IN ('invoice_prices_2026_07_29','invoice_prices_2026_07_29_v2')").run();
     // [name-from-invoice, unit_price, carton_total]
     const INV = [
       // ── Page 1 ─────────────────────────────────────────────────────────────
@@ -741,7 +756,7 @@ try {
     const existing = db.prepare("SELECT id, name FROM products WHERE category='school_materials'").all()
       .map(p => ({ id: p.id, norm: norm(p.name), base: base(p.name) }));
 
-    const upd = db.prepare('UPDATE products SET price=?, cost=? WHERE id=?');
+    const upd = db.prepare('UPDATE products SET price=? WHERE id=?');
 
     // guess grade from book name for newly inserted books
     const guessGrade = name => {
@@ -765,12 +780,12 @@ try {
     };
 
     const ins = db.prepare(
-      "INSERT INTO products (name,name_fr,category,grade,price,cost,discount,stock,sku,emoji,image) VALUES (?,?,?,?,?,?,0,0,?,?,null)"
+      "INSERT INTO products (name,name_fr,category,grade,price,cost,discount,stock,sku,emoji,image) VALUES (?,?,?,?,?,0,0,0,?,?,null)"
     );
 
     const applyAll = db.transaction(() => {
       let updated = 0, inserted = 0, skipped = [];
-      INV.forEach(([invName, price, cost]) => {
+      INV.forEach(([invName, price]) => {
         const invNorm = norm(invName);
         const invBase = ALIASES[invNorm] ?? ALIASES[base(invName)] ?? base(invName);
         const invNormFull = ALIASES[invNorm] ?? invNorm;
@@ -788,13 +803,13 @@ try {
         }
 
         if (hit) {
-          upd.run(price, cost, hit.id);
+          upd.run(price, hit.id);
           updated++;
         } else {
           // Insert as new product
           const grade = guessGrade(invName);
           const sku = 'INV-' + norm(invName).slice(0, 6).replace(/\s/g, '').toUpperCase() + '-' + Date.now().toString(36).slice(-4);
-          ins.run(invName, '', 'school_materials', grade, price, cost, sku, '📚');
+          ins.run(invName, '', 'school_materials', grade, price, sku, '📚');
           inserted++;
           skipped.push(invName);
         }
@@ -803,7 +818,7 @@ try {
       if (skipped.length) console.log('  New:', skipped.join('; '));
     });
     applyAll();
-    db.prepare("INSERT OR REPLACE INTO migrations VALUES (?)").run('invoice_prices_2026_07_29_v2');
+    db.prepare("INSERT OR REPLACE INTO migrations VALUES (?)").run('invoice_prices_2026_07_29_v3');
   }
 } catch (e) {
   console.warn('Invoice price migration skipped:', e.message);
