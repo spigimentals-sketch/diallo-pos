@@ -824,4 +824,170 @@ try {
   console.warn('Invoice price migration skipped:', e.message);
 }
 
+// ── Per-unit cost migration: cost = invoice_total / qty  ─────────────────────
+try {
+  const _done = db.prepare("SELECT name FROM migrations WHERE name='invoice_costs_2026_08_15'").get();
+  if (!_done) {
+    // cost = Math.round(total_FCFA / qty_supplied) = unit_price × (1 − discount%)
+    const COSTS = [
+      // Page 1
+      ['His/Géo Sciences Humaines CM1 (EDICEF)',                                            1480],
+      ['Planete Cameroun Geographie 6e/1e Annee New (Edicef)',                              3360],
+      ['Planete Cameroun Geographie 5e/2e Annee New (Edicef)',                              3440],
+      ['Planete Cameroun Geographie 4e/3e Annee New (Edicef)',                              3440],
+      ['Sciences Secondes Litteraires (CLE)',                                               2800],
+      ['Sciences 1ere Litteraires (CLE)',                                                   4000],
+      ['SVT Tle D et TI (CLE)',                                                             6400],
+      ['The Lady with a beard (CLE)',                                                       2000],
+      ['Mathematics Class 5 (BETCHA)',                                                      1520],
+      ['English wb Class 6 (BETCHACAM)',                                                     978],
+      ['English Language Class 6 (BETCHA)',                                                 1520],
+      ['Mathematics Class 6 (BETCHA)',                                                      1520],
+      ['Mathematics wb Class 6 (BETCHACAM)',                                                 978],
+      ['TIC Niveau 3 CM1-CM2 (Mondoux)',                                                   1440],
+      ['Education a la Citoyennete 6e/5e et 1e/2e Annee New (Mondoux)',                    2800],
+      ['Mathematiques 6e (Mondoux)',                                                        3200],
+      ['SVTEEHB 4eme (Mondoux)',                                                            3200],
+      ['French Form 1 (Mondoux)',                                                           2880],
+      ['French Form 2 (Mondoux)',                                                           2800],
+      ['Innovative in English Book 3 (Mondoux)',                                            2880],
+      // Page 2
+      ['A Vos Maths Livret CP (NATHAN)',                                                   1000],
+      ['Francais CE1 (NATHAN)',                                                             1440],
+      ['Mathematiques CE2 (NATHAN)',                                                        1440],
+      ['Mathematiques CM1 (NATHAN)',                                                        1520],
+      ['Francais 6eme (NATHAN)',                                                            3360],
+      ["J'Apprends le Francais Livre 2 (ANUCAM)",                                          1440],
+      ["Apprenons le Francais A/L (ANUCAM)",                                               3000],
+      ['Mathematics wb Class 3 (ATEMEC)',                                                    978],
+      ['Majors en Sciences SIL (ASVA)',                                                    1200],
+      ['Majors en Sciences CP (ASVA)',                                                     1155],
+      ['English CM1 (ASVA)',                                                                1520],
+      ['English wb CM1 (ASVA)',                                                              978],
+      ['Majors en Mathematique 1ere A (ASVA)',                                             2695],
+      ['Majors en Philosophie Tle SES (ASVA)',                                             3850],
+      ['Majors en Mathematique Tle A (ASVA)',                                              3003],
+      ['Mon Cahier de Graphisme CP (COSMOS)',                                               960],
+      ['Anglais CE1 (COSMOS)',                                                             1440],
+      ['Sciences et technologies CM2 (COSMOS)',                                            1440],
+      ['Champions en Francais CP Livret (Edicef)',                                         1014],
+      // Page 3
+      ['Syllabaire SIL-CP (Afric Educ)',                                                  1200],
+      ['Mathematiques 4eme (Afric Educ)',                                                  3600],
+      ['Coeur du Sahel. Litterature 4eme (Proximite)',                                     2000],
+      ["L'art de Partager un Mari (PROXIMITE)",                                            2400],
+      ["L'Attachement au Sol Natal Litterature 4e 4ed (IFRIKIYA)",                         1520],
+      ['Mathematiques 1ere D&TI (CEPER)',                                                  4400],
+      ['English wb Class 5 (LONGHORN)',                                                     978],
+      ['Physics for Secondary Schools Form 2 (LONGHORN)',                                  2800],
+      ['Integrated Secondary Chemistry Form 2 (DOMINION)',                                 2400],
+      ['An Integrated History Since 1850 For G.C.E. O Level 3, 4 &5 (Quality Print)',     4500],
+      ['Standard Ordinary Level Physics (DOMINION)',                                       4000],
+      ['Science and Technology Class 6 (CATWA)',                                           1440],
+      ['Fireside Tales (PENG Edition)',                                                    1600],
+      ['A Time to Reconcile Litterature form 2 (PEACOCK)',                                  960],
+      ['My Cameroon & Other Poems (PENG Edition)',                                         1440],
+      ['Inclusive Education, Literature form 3 (NYAA)',                                    1440],
+      ['Macbeth (New Swan Edith)',                                                         1500],
+      ['Lord of the Flies (GRACE)',                                                        1600],
+      // Page 4
+      ['French Form 4 (Mondoux)',                                                          2800],
+      ['Integrated Secondary Mathematics Form 2 (SHILOH)',                                2800],
+      ['Success in commerce for form 3, 4and5',                                           5600],
+      ['Elementary Chemistry Forms 1 (TEWA)',                                              2400],
+      ['Elementary Mathematics N2 (DOVE)',                                                  800],
+      ['The Essentials of Logic for Ordinary Level Forms 3, 4 & 5 (Grassroots)',          1925],
+      ["Geography for Competency Dev't Book 1 New 3rd ed. (GREENWORLD)",                  2400],
+      ['The Patriotic Citizen Book 1 (GREENWORLD)',                                        3200],
+      ["Geography for Competency Dev't Book 2 New 3rd ed. (GREENWORLD)",                  3200],
+      ['Understanding Biology for Intermediate Form 3 New 2nd ed. (GREENWORLD)',           5200],
+      ['Understanding Biology Form 4&5 Vol 1 New 4th ed. (GREENWORLD)',                   6400],
+      ['Understanding Biology for Human Biology New Forms 4&5 Vol 2 (GREENWORLD)',         5200],
+      ['Citizenship Education Form 3 (CATWA)',                                             2400],
+      ['Economics For GCE O Level and ITVE Forms 3, 4 & 5 (CATWA)',                       5600],
+      ['Basic Geology for Colleges Form 4 and 5 (TEWA)',                                  4000],
+      // Page 5 (NMI)
+      ['Winners in English Class 4 WB (NMI)',                                               966],
+      ['Winners in Social Studies Class 4 (NMI)',                                          1440],
+      ['Winners in Science & Tech Class 5 (NMI)',                                          1440],
+      ['Les Brillants en Anglais CP Livret (NMI)',                                         1008],
+      ['Les Brillants en Anglais CE2 Livret (NMI)',                                         966],
+      ['Brillants Anglais CE2 (NMI)',                                                      1440],
+      ['Prime English Book 1 (NMI)',                                                       3040],
+      ['Prime Physics Book 1 (NMI)',                                                       2560],
+      ['Prime English Book 2 (NMI)',                                                       3040],
+      ['A Pen Kills, Litterature Form 3 (NMI)',                                            2000],
+      ['Prime Mathematics Book 3 (NMI)',                                                   3360],
+      ['Prime Computer Science Book 3 (NMI)',                                              3200],
+      ['Prime Mathematics Book 4 & 5 (NMI)',                                              4400],
+      ['Prime English Book 4 (NMI)',                                                       3360],
+      ['Prime Physics O Level Book 5 (NMI)',                                               4000],
+      // Page 6 (Afric Educ + NATHAN)
+      ['French Class 4 Livret (Afric Educ)',                                               1020],
+      ['French Class 5 (Afric Educ)',                                                      1020],
+      ['French Class 6 (Afric Educ)',                                                      1520],
+      ['Je pratique le dessin et le coloriage 1 (Afric Educ)',                              800],
+      ['Je pratique le dessin et le coloriage 2 (Afric Educ)',                              800],
+      ['Litterature CE1: Comment ca va Benjamin (Afric Educ)',                              800],
+      ['Mathematique Livret CM2 (Afric Educ)',                                             1020],
+      ['French form 5 (Afric Educ)',                                                       3200],
+      ['Computer science form 5 (Afric Educ)',                                             4000],
+      ['Anglais 6eme (Afric Educ)',                                                        4000],
+      ['Sciences 6eme (Afric Educ)',                                                       4000],
+      ['Francais 5eme (Afric Educ)',                                                       3600],
+      ['Francais 4eme (Afric Educ)',                                                       4000],
+      ['Francais 3eme (Afric Educ)',                                                       4000],
+      ['Mathematiques 3eme (Afric Educ)',                                                  3600],
+      ['SVTEEHB 3eme (Afric Educ)',                                                        4000],
+      ['A Vos Maths SIL (NATHAN)',                                                         1125],
+      ['A Vos Maths Livret SIL (NATHAN)',                                                   800],
+      ['Vivons Ensemble SIL/CP (NATHAN)',                                                  1155],
+      ['A Vos Maths CP (NATHAN)',                                                          1125],
+      // Page 7 (NMI continued + Afric Educ)
+      ['Mastering English Lower and Upper Sixth (NMI)',                                    4400],
+      ["L'Eveil Informatique 5eme (NMI)",                                                  3200],
+      ["Erwachen l'Eveil Deutsch 4eme (NMI)",                                              3600],
+      ["L'Eveil Physique Chimie et Technologie 4eme (NMI)",                                3360],
+      ["Erwachen l'Eveil Deutsch 3eme (NMI)",                                              3600],
+      ["L'Eveil Anglais 3eme (NMI)",                                                       3600],
+      ["L'Excellence en Philosophie 2nde (NMI)",                                           3200],
+      ["L'Excellence en Informatique 2nde A et C (NMI)",                                   2480],
+      ["L'Excellence en SVT 1ere C (NMI)",                                                 5200],
+      ["L'Excellence en Physique 1ere D et C (NMI)",                                       4000],
+      ["L'Excellence en Chimie 1ere D et C (NMI)",                                         3600],
+      ["L'Excellence en Chimie Tle C et D (NMI)",                                          4400],
+      ['French Class 3 (Afric Educ)',                                                      1360],
+      ['How are you Benjamin? (Africa Education)',                                           800],
+      ['Benjamin is not a Little Boy (Afric Educ)',                                         800],
+      ['French Class 4 (Afric Educ)',                                                      1360],
+    ];
+
+    const _norm = s => s.normalize('NFD').replace(/[̀-̯]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const _base = s => _norm(s).replace(/\s*\([^)]+\)\s*$/, '').trim();
+
+    const _products = db.prepare("SELECT id, name FROM products WHERE category='school_materials'").all()
+      .map(p => ({ id: p.id, n: _norm(p.name), b: _base(p.name) }));
+
+    const _upd = db.prepare('UPDATE products SET cost=? WHERE id=?');
+    let _updated = 0;
+
+    for (const [invName, cost] of COSTS) {
+      const n = _norm(invName);
+      const b = _base(invName);
+      let hit = _products.find(p => p.n === n);
+      if (!hit) hit = _products.find(p => p.b === b && b.length > 5);
+      if (!hit && b.length > 8) {
+        const cands = _products.filter(p => p.n.includes(b) || b.includes(p.b));
+        if (cands.length === 1) hit = cands[0];
+      }
+      if (hit) { _upd.run(cost, hit.id); _updated++; }
+    }
+
+    db.prepare("INSERT OR IGNORE INTO migrations VALUES (?)").run('invoice_costs_2026_08_15');
+    console.log(`• Invoice unit costs set: ${_updated} products`);
+  }
+} catch (e) {
+  console.warn('Invoice cost migration skipped:', e.message);
+}
+
 export default db;
