@@ -4078,6 +4078,17 @@ const SettingsView = () => {
       toast(!e.status ? "Can't reset while offline — try again once connected" : e.message, 'error');
     }
   };
+  const clearToday = async () => {
+    const d = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    if (!window.confirm(`Clear all of today's (${d}) sales?\n\nOrders and stock movements for today will be deleted and stock restored. Expenses, shifts, products and all other history are kept. This cannot be undone.`)) return;
+    try {
+      const r = await api.clearToday();
+      toast(`Today's sales cleared — ${r.ordersDeleted} order${r.ordersDeleted !== 1 ? 's' : ''} removed`);
+      refresh();
+    } catch (e) {
+      toast(!e.status ? "Can't clear while offline — try again once connected" : e.message, 'error');
+    }
+  };
   const cancelSettings = () => {
     if (savedSnapshot) setSettings(prev => ({ ...prev, ...savedSnapshot }));
     toast('Changes discarded', 'info');
@@ -4342,6 +4353,17 @@ const SettingsView = () => {
                   This cannot be undone.
                 </p>
                 <button onClick={clearAllData} className="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700">Clear all data</button>
+              </div>
+
+              <div className="rounded-xl border border-sky-200 bg-sky-50/40 p-4 mt-4">
+                <h4 className="font-medium text-sky-700 flex items-center gap-2 mb-1"><RefreshCw size={15} /> Clear today's sales</h4>
+                <p className="text-xs text-stone-600 max-w-lg mb-3">
+                  Removes all orders recorded today and restores the stock that was deducted.
+                  Use this if today's entries were test sales or contained errors you want to
+                  redo from scratch. Past days, expenses, shifts, products and customers are untouched.
+                  This cannot be undone.
+                </p>
+                <button onClick={clearToday} className="px-4 py-2 rounded-lg bg-sky-600 text-white text-sm font-medium hover:bg-sky-700">Clear today's sales</button>
               </div>
 
               <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 mt-4">

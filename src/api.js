@@ -113,6 +113,7 @@ export const api = {
   // maintenance
   clearData: () => req('POST', '/maintenance/clear-data'),
   clearActivity: () => req('POST', '/maintenance/clear-activity'),
+  clearToday: () => req('POST', '/maintenance/clear-today'),
   // discount approval
   createDiscountRequest: (p) => req('POST', '/discount-requests', p),
   getDiscountRequest: (id) => req('GET', `/discount-requests/${id}`),
