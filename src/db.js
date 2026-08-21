@@ -83,7 +83,9 @@ CREATE TABLE IF NOT EXISTS products (
   stock     INTEGER NOT NULL DEFAULT 0,
   sku       TEXT UNIQUE NOT NULL,
   emoji     TEXT DEFAULT '📦',
-  image     TEXT
+  image     TEXT,
+  createdAt TEXT,
+  updatedAt TEXT
 );
 
 CREATE TABLE IF NOT EXISTS customers (
@@ -243,6 +245,26 @@ try {
   if (!ocols.includes('cost')) db.exec('ALTER TABLE order_items ADD COLUMN cost INTEGER DEFAULT 0');
 } catch (e) {
   console.warn('cost-column migration skipped:', e.message);
+}
+
+// Track when each product was registered/last modified, so Inventory can
+// offer "Date Registered" / "Date Modified" sorting. Existing rows predate
+// these columns and are backfilled with the migration's run time, since
+// their real creation date was never recorded.
+try {
+  const pcols = db.prepare('PRAGMA table_info(products)').all().map(c => c.name);
+  if (!pcols.includes('createdAt')) {
+    db.exec('ALTER TABLE products ADD COLUMN createdAt TEXT');
+    const now = new Date().toISOString();
+    db.prepare('UPDATE products SET createdAt=? WHERE createdAt IS NULL').run(now);
+  }
+  if (!pcols.includes('updatedAt')) {
+    db.exec('ALTER TABLE products ADD COLUMN updatedAt TEXT');
+    const now = new Date().toISOString();
+    db.prepare('UPDATE products SET updatedAt=? WHERE updatedAt IS NULL').run(now);
+  }
+} catch (e) {
+  console.warn('products timestamp migration skipped:', e.message);
 }
 
 // Ensure orders.clientOrderId exists (lets a retried/offline-queued checkout
@@ -564,12 +586,13 @@ try {
       ['Lord of the Flies (Grace)',                       '3ème',      false],
     ];
     const ins = db.prepare(
-      'INSERT INTO products (name,name_fr,category,grade,price,cost,discount,stock,sku,emoji,image) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO products (name,name_fr,category,grade,price,cost,discount,stock,sku,emoji,image,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     const seedAll = db.transaction(() => {
+      const now = new Date().toISOString();
       BOOKS.forEach(([name, grade, wb], i) => {
         const sku = `SCH-${String(i + 1).padStart(3, '0')}`;
-        ins.run(name, '', 'school_materials', grade, 0, 0, 0, 0, sku, wb ? '📓' : '📚', null);
+        ins.run(name, '', 'school_materials', grade, 0, 0, 0, 0, sku, wb ? '📓' : '📚', null, now, now);
       });
     });
     seedAll();
