@@ -23,7 +23,7 @@ import {
   ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
   Globe, Building, Hash, Percent, ShieldCheck, BellRing,
   Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu, Camera, Monitor, Home,
-  PanelLeftClose, PanelLeftOpen, MessageCircle
+  PanelLeftClose, PanelLeftOpen, MessageCircle, ArrowUpDown
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
@@ -76,6 +76,11 @@ const TRANSLATIONS = {
     all: 'All', export: 'Export', add_product: 'Add product',
     product: 'Product', category: 'Category', price: 'Price',
     stock: 'Stock', status: 'Status', edit: 'Edit',
+    sort_by: 'Sort by', sort_date_modified: 'Date modified (newest)',
+    sort_date_registered: 'Date registered (newest)', sort_name_az: 'Name (A–Z)',
+    sort_name_za: 'Name (Z–A)', sort_stock_high: 'Stock (high–low)',
+    sort_stock_low: 'Stock (low–high)', sort_price_high: 'Price (high–low)',
+    sort_price_low: 'Price (low–high)',
     // Suppliers
     add_supplier: 'Add supplier', supplier: 'Supplier',
     contact: 'Contact', products_count: 'Products', last_order: 'Last order',
@@ -174,6 +179,11 @@ const TRANSLATIONS = {
     all: 'Tous', export: 'Exporter', add_product: 'Ajouter produit',
     product: 'Produit', category: 'Catégorie', price: 'Prix',
     stock: 'Stock', status: 'Statut', edit: 'Modifier',
+    sort_by: 'Trier par', sort_date_modified: 'Date de modification (récent)',
+    sort_date_registered: "Date d'enregistrement (récent)", sort_name_az: 'Nom (A–Z)',
+    sort_name_za: 'Nom (Z–A)', sort_stock_high: 'Stock (élevé–bas)',
+    sort_stock_low: 'Stock (bas–élevé)', sort_price_high: 'Prix (élevé–bas)',
+    sort_price_low: 'Prix (bas–élevé)',
     add_supplier: 'Ajouter fournisseur', supplier: 'Fournisseur',
     contact: 'Contact', products_count: 'Produits', last_order: 'Dernière cmd.',
     active: 'Actif', inactive: 'Inactif',
@@ -2011,6 +2021,7 @@ const ProductsPanel = () => {
   const categoryList = useCategoryList();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('date_registered');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [scanOpen, setScanOpen] = useState(false);
@@ -2023,9 +2034,20 @@ const ProductsPanel = () => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+  const SORTERS = {
+    date_modified: (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0),
+    date_registered: (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+    name_az: (a, b) => a.name.localeCompare(b.name),
+    name_za: (a, b) => b.name.localeCompare(a.name),
+    stock_high: (a, b) => b.stock - a.stock,
+    stock_low: (a, b) => a.stock - b.stock,
+    price_high: (a, b) => b.price - a.price,
+    price_low: (a, b) => a.price - b.price,
+  };
+  const sorted = [...filtered].sort(SORTERS[sortBy] || SORTERS.date_registered);
   const exportProducts = () => {
     const rows = [['Name', 'SKU', 'Category', 'Price', 'Stock']];
-    filtered.forEach(p => rows.push([p.name, p.sku, p.category, p.price, p.stock]));
+    sorted.forEach(p => rows.push([p.name, p.sku, p.category, p.price, p.stock]));
     downloadCsv(`products-${new Date().toISOString().slice(0, 10)}.csv`, rows);
   };
   const openAdd = () => { setEditing(null); setModalOpen(true); };
@@ -2161,6 +2183,20 @@ const ProductsPanel = () => {
               </button>
             ))}
           </div>
+          <div className="relative order-2 flex-shrink-0">
+            <ArrowUpDown size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} title={t('sort_by')}
+              className="pl-7 pr-6 py-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-medium text-stone-600 focus:outline-none focus:border-emerald-600 appearance-none cursor-pointer">
+              <option value="date_registered">{t('sort_date_registered')}</option>
+              <option value="date_modified">{t('sort_date_modified')}</option>
+              <option value="name_az">{t('sort_name_az')}</option>
+              <option value="name_za">{t('sort_name_za')}</option>
+              <option value="stock_high">{t('sort_stock_high')}</option>
+              <option value="stock_low">{t('sort_stock_low')}</option>
+              <option value="price_high">{t('sort_price_high')}</option>
+              <option value="price_low">{t('sort_price_low')}</option>
+            </select>
+          </div>
           <button onClick={exportProducts} className="sm:ml-auto order-3 flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
             <Download size={14} /> {t('export')}
           </button>
@@ -2208,7 +2244,7 @@ const ProductsPanel = () => {
             </tr>
           </thead>
           <tbody>
-            {filtered.map(p => {
+            {sorted.map(p => {
               const cat = categoryList.find(c => c.id === p.category);
               const lowStock = p.stock < lowStockThreshold;
               const isSelected = selected.has(p.id);
