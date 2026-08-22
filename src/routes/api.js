@@ -123,12 +123,12 @@ r.get('/products', h((req, res) => {
 }));
 
 r.post('/products', h((req, res) => {
-  const { name, name_fr = '', category, grade = null, price, cost = 0, discount = 0, stock = 0, sku, emoji = '📦', image = null } = req.body;
+  const { name, name_fr = '', category, grade = null, price, cost = 0, discount = 0, stock = 0, sku, emoji = '📦', image = null, packetPrice = null, unitsPerPacket = null } = req.body;
   if (!name || !category || price == null || !sku) throw new Error('name, category, price and sku are required');
   const now = new Date().toISOString();
   const info = db.prepare(
-    'INSERT INTO products (name,name_fr,category,grade,price,cost,discount,stock,sku,emoji,image,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(name, name_fr, category, grade || null, price, cost, discount, stock, sku, emoji, image, now, now);
+    'INSERT INTO products (name,name_fr,category,grade,price,cost,discount,stock,sku,emoji,image,createdAt,updatedAt,packetPrice,unitsPerPacket) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(name, name_fr, category, grade || null, price, cost, discount, stock, sku, emoji, image, now, now, packetPrice || null, unitsPerPacket || null);
   res.status(201).json(db.prepare('SELECT * FROM products WHERE id=?').get(info.lastInsertRowid));
 }));
 
@@ -136,8 +136,8 @@ r.put('/products/:id', h((req, res) => {
   const cur = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!cur) throw new Error('product not found');
   const n = { ...cur, ...req.body };
-  db.prepare('UPDATE products SET name=?,name_fr=?,category=?,grade=?,price=?,cost=?,discount=?,stock=?,sku=?,emoji=?,image=?,updatedAt=? WHERE id=?')
-    .run(n.name, n.name_fr, n.category, n.grade || null, n.price, n.cost ?? 0, n.discount ?? 0, n.stock, n.sku, n.emoji, n.image ?? null, new Date().toISOString(), req.params.id);
+  db.prepare('UPDATE products SET name=?,name_fr=?,category=?,grade=?,price=?,cost=?,discount=?,stock=?,sku=?,emoji=?,image=?,updatedAt=?,packetPrice=?,unitsPerPacket=? WHERE id=?')
+    .run(n.name, n.name_fr, n.category, n.grade || null, n.price, n.cost ?? 0, n.discount ?? 0, n.stock, n.sku, n.emoji, n.image ?? null, new Date().toISOString(), n.packetPrice || null, n.unitsPerPacket || null, req.params.id);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
 }));
 
@@ -462,12 +462,26 @@ r.post('/orders', h((req, res) => {
     // when the cashier started — another terminal may have sold the last
     // units in the meantime. Reject the whole sale rather than silently
     // selling stock that no longer exists.
-    const stockOf = db.prepare('SELECT name, stock FROM products WHERE id=?');
+    //
+    // Stock is always tracked in individual units. A cart line sold "by
+    // packet" (it.mode === 'packet') consumes it.qty * unitsPerPacket units
+    // — unitsPerPacket comes from our own DB copy of the product, not the
+    // client, so a stale/tampered cart can't misstate how much stock a
+    // packet sale actually uses.
+    const stockOf = db.prepare('SELECT name, stock, unitsPerPacket FROM products WHERE id=?');
+    const productCache = new Map();
+    const unitsOf = (it) => {
+      const p = productCache.get(it.id);
+      const perUnit = it.mode === 'packet' ? (p?.unitsPerPacket || 1) : 1;
+      return it.qty * perUnit;
+    };
     for (const it of items) {
       if (!it.id) continue;
       const p = stockOf.get(it.id);
       if (!p) throw new Error(`Product no longer exists: ${it.name}`);
-      if (p.stock < it.qty) throw new Error(`Insufficient stock for ${p.name}: only ${p.stock} left`);
+      productCache.set(it.id, p);
+      const needed = unitsOf(it);
+      if (p.stock < needed) throw new Error(`Insufficient stock for ${p.name}: only ${p.stock} left`);
     }
 
     const orderInfo = db.prepare(
@@ -475,7 +489,7 @@ r.post('/orders', h((req, res) => {
     ).run(invoiceNo, customerId, subtotal, Math.round(discount), Math.round(tva), total, method, cashier, createdAt, clientOrderId);
     const orderId = orderInfo.lastInsertRowid;
 
-    const itemIns = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty) VALUES (?,?,?,?,?,?,?)');
+    const itemIns = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty,mode,unitsPerPacket) VALUES (?,?,?,?,?,?,?,?,?)');
     const stockUpd = db.prepare('UPDATE products SET stock = MAX(0, stock - ?) WHERE id=?');
     const moveIns = db.prepare('INSERT INTO stock_movements (productName,type,qty,source,date,user) VALUES (?,?,?,?,?,?)');
     const costOf = db.prepare('SELECT cost FROM products WHERE id=?');
@@ -483,10 +497,13 @@ r.post('/orders', h((req, res) => {
 
     for (const it of items) {
       const unitCost = it.id ? (costOf.get(it.id)?.cost || 0) : 0;
-      itemIns.run(orderId, it.id, it.name, it.sku, it.price, unitCost, it.qty);
+      const mode = it.mode === 'packet' ? 'packet' : 'unit';
+      const packSize = mode === 'packet' ? (productCache.get(it.id)?.unitsPerPacket || 1) : null;
+      itemIns.run(orderId, it.id, it.name, it.sku, it.price, unitCost, it.qty, mode, packSize);
       if (it.id) {
-        stockUpd.run(it.qty, it.id);
-        moveIns.run(it.name, 'out', it.qty, invoiceNo, dateStr, cashier || 'POS');
+        const units = unitsOf(it);
+        stockUpd.run(units, it.id);
+        moveIns.run(it.name, 'out', units, invoiceNo, dateStr, cashier || 'POS');
       }
     }
 
@@ -522,11 +539,14 @@ r.put('/orders/:id', requireAuth, requireRole('admin'), h((req, res) => {
   const { items: newItems, discount = 0, method, note } = req.body;
   const oldItems = db.prepare('SELECT * FROM order_items WHERE orderId=?').all(order.id);
 
-  // Reconcile stock: build maps of productId → qty
+  // Reconcile stock: build maps of productId → stock units (not line qty —
+  // a packet line's qty is a count of packets, so it must be expanded by
+  // its unitsPerPacket to get the actual units to return/take from stock).
+  const unitsOf = (i) => i.mode === 'packet' ? i.qty * (i.unitsPerPacket || 1) : i.qty;
   const oldQty = {};
-  oldItems.forEach(i => { if (i.productId) oldQty[i.productId] = (oldQty[i.productId] || 0) + i.qty; });
+  oldItems.forEach(i => { if (i.productId) oldQty[i.productId] = (oldQty[i.productId] || 0) + unitsOf(i); });
   const newQty = {};
-  (newItems || []).forEach(i => { if (i.productId) newQty[i.productId] = (newQty[i.productId] || 0) + i.qty; });
+  (newItems || []).forEach(i => { if (i.productId) newQty[i.productId] = (newQty[i.productId] || 0) + unitsOf(i); });
 
   // Union of all productIds touched
   const allIds = new Set([...Object.keys(oldQty), ...Object.keys(newQty)]);
@@ -547,8 +567,8 @@ r.put('/orders/:id', requireAuth, requireRole('admin'), h((req, res) => {
 
   // Replace items
   db.prepare('DELETE FROM order_items WHERE orderId=?').run(order.id);
-  const ins = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty) VALUES (?,?,?,?,?,?,?)');
-  (newItems || []).forEach(i => ins.run(order.id, i.productId || null, i.name, i.sku || '', i.price, i.cost || 0, i.qty));
+  const ins = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty,mode,unitsPerPacket) VALUES (?,?,?,?,?,?,?,?,?)');
+  (newItems || []).forEach(i => ins.run(order.id, i.productId || null, i.name, i.sku || '', i.price, i.cost || 0, i.qty, i.mode === 'packet' ? 'packet' : 'unit', i.mode === 'packet' ? (i.unitsPerPacket || 1) : null));
 
   const updated = db.prepare('SELECT * FROM orders WHERE id=?').get(order.id);
   updated.items = db.prepare('SELECT * FROM order_items WHERE orderId=?').all(order.id);
@@ -684,7 +704,8 @@ r.post('/maintenance/clear-data', requireAuth, requireRole('admin'), h((req, res
 r.post('/maintenance/clear-activity', requireAuth, requireRole('admin'), h((req, res) => {
   const tx = db.transaction(() => {
     const soldByProduct = db.prepare(
-      'SELECT productId, SUM(qty) AS qty FROM order_items WHERE productId IS NOT NULL GROUP BY productId'
+      `SELECT productId, SUM(CASE WHEN mode='packet' THEN qty * COALESCE(unitsPerPacket,1) ELSE qty END) AS qty
+       FROM order_items WHERE productId IS NOT NULL GROUP BY productId`
     ).all();
     const restock = db.prepare('UPDATE products SET stock = stock + ? WHERE id=?');
     for (const row of soldByProduct) restock.run(row.qty, row.productId);
@@ -705,7 +726,8 @@ r.post('/maintenance/clear-today', requireAuth, requireRole('admin'), h((req, re
   const today = new Date().toISOString().slice(0, 10);
   const tx = db.transaction(() => {
     const soldToday = db.prepare(
-      "SELECT productId, SUM(qty) AS qty FROM order_items WHERE productId IS NOT NULL AND orderId IN (SELECT id FROM orders WHERE substr(createdAt,1,10)=?) GROUP BY productId"
+      `SELECT productId, SUM(CASE WHEN mode='packet' THEN qty * COALESCE(unitsPerPacket,1) ELSE qty END) AS qty
+       FROM order_items WHERE productId IS NOT NULL AND orderId IN (SELECT id FROM orders WHERE substr(createdAt,1,10)=?) GROUP BY productId`
     ).all(today);
     const restock = db.prepare('UPDATE products SET stock = stock + ? WHERE id=?');
     for (const row of soldToday) restock.run(row.qty, row.productId);
@@ -757,7 +779,7 @@ r.get('/reports/profitability', h((req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
   const rows = db.prepare(`
     SELECT productId, name, sku,
-           SUM(qty) AS unitsSold,
+           SUM(CASE WHEN mode='packet' THEN qty * COALESCE(unitsPerPacket,1) ELSE qty END) AS unitsSold,
            SUM(price*qty) AS revenue,
            SUM(cost*qty) AS cost
     FROM order_items

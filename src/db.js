@@ -85,7 +85,9 @@ CREATE TABLE IF NOT EXISTS products (
   emoji     TEXT DEFAULT '📦',
   image     TEXT,
   createdAt TEXT,
-  updatedAt TEXT
+  updatedAt TEXT,
+  packetPrice     INTEGER,
+  unitsPerPacket  INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS customers (
@@ -186,7 +188,9 @@ CREATE TABLE IF NOT EXISTS order_items (
   sku       TEXT,
   price     INTEGER,
   cost      INTEGER DEFAULT 0,
-  qty       INTEGER
+  qty       INTEGER,
+  mode           TEXT DEFAULT 'unit',
+  unitsPerPacket INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -265,6 +269,22 @@ try {
   }
 } catch (e) {
   console.warn('products timestamp migration skipped:', e.message);
+}
+
+// Packet selling: a product can optionally be sold either by the unit
+// (existing price/stock) or by a fixed-size packet (packetPrice for
+// unitsPerPacket units at once). Stock always tracks individual units;
+// packetPrice/unitsPerPacket being unset (0/NULL) just means the product
+// isn't sold by packet.
+try {
+  const pcols = db.prepare('PRAGMA table_info(products)').all().map(c => c.name);
+  if (!pcols.includes('packetPrice')) db.exec('ALTER TABLE products ADD COLUMN packetPrice INTEGER');
+  if (!pcols.includes('unitsPerPacket')) db.exec('ALTER TABLE products ADD COLUMN unitsPerPacket INTEGER');
+  const oicols = db.prepare('PRAGMA table_info(order_items)').all().map(c => c.name);
+  if (!oicols.includes('mode')) db.exec("ALTER TABLE order_items ADD COLUMN mode TEXT DEFAULT 'unit'");
+  if (!oicols.includes('unitsPerPacket')) db.exec('ALTER TABLE order_items ADD COLUMN unitsPerPacket INTEGER');
+} catch (e) {
+  console.warn('packet-pricing migration skipped:', e.message);
 }
 
 // Ensure orders.clientOrderId exists (lets a retried/offline-queued checkout
