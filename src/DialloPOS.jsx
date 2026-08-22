@@ -814,9 +814,9 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
               {items.length === 0 ? (
                 <div className="text-center text-stone-400 text-[10px] py-2">— no items —</div>
               ) : items.map(it => (
-                <div key={it.id} className="mb-1">
+                <div key={`${it.id}-${it.mode || 'unit'}`} className="mb-1">
                   <div className="flex justify-between gap-2">
-                    <span className="flex-1">{productName(it)}</span>
+                    <span className="flex-1">{productName(it)}{it.mode === 'packet' ? ` (pack ×${it.unitsPerPacket})` : ''}</span>
                     <span className="font-medium">{fmt(it.price * it.qty)}</span>
                   </div>
                   <div className="flex justify-between text-stone-500 text-[10px] pl-1">
@@ -1267,31 +1267,44 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
     (productName(p).toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()))
   ), [activeCat, activeGrade, search, lang, products]);
 
+  // Stock is always tracked in individual units. A cart line added "by
+  // packet" (mode === 'packet') consumes unitsPerPacket units per qty, so a
+  // product can have a unit-mode line and a packet-mode line in the cart at
+  // once (e.g. 2 loose bottles + 1 case) — they're kept as separate lines,
+  // matched on (id, mode), and their combined unit usage is what's capped
+  // against live stock.
+  const unitsOf = (item) => item.mode === 'packet' ? item.qty * (item.unitsPerPacket || 1) : item.qty;
+  const effPrice = (item) => item.mode === 'packet' ? (item.packetPrice || 0) : item.price;
+
   // Never let the cart hold more units of a product than are actually on
   // the shelf — a sale that outruns stock just creates a refund/argument
   // later. Both the add button and the +/- stepper are capped here; the
   // backend re-checks the same thing at checkout in case stock changed
   // (another terminal sold it) since this cart was built.
-  const addToCart = (product) => {
-    if (product.stock <= 0) { toast(`${productName(product)} is out of stock`, 'error'); return false; }
+  const addToCart = (product, mode = 'unit') => {
+    const perUnit = mode === 'packet' ? (product.unitsPerPacket || 1) : 1;
+    if (product.stock < perUnit) { toast(`${productName(product)} is out of stock`, 'error'); return false; }
     let added = true;
     setCart(prev => {
-      const ex = prev.find(i => i.id === product.id);
-      if (ex) {
-        if (ex.qty >= product.stock) { added = false; return prev; }
-        return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i);
-      }
-      return [...prev, { ...product, qty: 1 }];
+      const otherUnits = prev.filter(i => i.id === product.id && i.mode !== mode).reduce((s, i) => s + unitsOf(i), 0);
+      const ex = prev.find(i => i.id === product.id && i.mode === mode);
+      const nextQty = (ex?.qty || 0) + 1;
+      if (nextQty * perUnit + otherUnits > product.stock) { added = false; return prev; }
+      if (ex) return prev.map(i => (i.id === product.id && i.mode === mode) ? { ...i, qty: i.qty + 1 } : i);
+      return [...prev, { ...product, qty: 1, mode }];
     });
     if (!added) toast(`Only ${product.stock} ${productName(product)} in stock`, 'error');
     return added;
   };
-  const updateQty = (id, delta) => setCart(prev => prev.map(i => {
-    if (i.id !== id) return i;
-    const stock = products.find(p => p.id === id)?.stock ?? Infinity;
-    return { ...i, qty: Math.max(0, Math.min(stock, i.qty + delta)) };
-  }).filter(i => i.qty > 0));
-  const removeItem = (id) => setCart(prev => prev.filter(i => i.id !== id));
+  const updateQty = (id, mode, delta) => setCart(prev => {
+    const product = products.find(p => p.id === id);
+    const stock = product?.stock ?? Infinity;
+    const perUnit = mode === 'packet' ? (product?.unitsPerPacket || 1) : 1;
+    const otherUnits = prev.filter(i => i.id === id && i.mode !== mode).reduce((s, i) => s + unitsOf(i), 0);
+    const maxQty = perUnit > 0 ? Math.max(0, Math.floor((stock - otherUnits) / perUnit)) : 0;
+    return prev.map(i => (i.id === id && i.mode === mode) ? { ...i, qty: Math.max(0, Math.min(maxQty, i.qty + delta)) } : i).filter(i => i.qty > 0);
+  });
+  const removeItem = (id, mode) => setCart(prev => prev.filter(i => !(i.id === id && i.mode === mode)));
 
   // "Scan": prompt for a SKU/barcode and add the matching product.
   // Look up a scanned/typed code against product SKU (or barcode) and add to cart.
@@ -1346,7 +1359,7 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
     return () => { window.removeEventListener('keydown', handler); clearTimeout(_scanTick.current); };
   }, [showScan]);
 
-  const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const subtotal = cart.reduce((s, i) => s + effPrice(i) * i.qty, 0);
   const discountAmt = Math.min(discount, subtotal);
   const discountedBase = subtotal - discountAmt;
   const tva = discountedBase * tvaRate;
@@ -1372,7 +1385,7 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   }, []);
   const broadcastCart = () => {
     customerChannel.current?.postMessage({
-      items: cart.map(i => ({ name: productName(i), price: i.price, qty: i.qty, image: i.image || null, emoji: i.emoji || null })),
+      items: cart.map(i => ({ name: productName(i), price: effPrice(i), qty: i.qty, image: i.image || null, emoji: i.emoji || null })),
       subtotal, tva, total,
       customerName: customer?.name || null,
       paid: justPaid,
@@ -1404,27 +1417,29 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
 
   const completePayment = async () => {
     if (cart.length === 0 || !activeCashier) return;
-    for (const item of cart) {
-      const live = products.find(p => p.id === item.id);
-      if (live && live.stock < item.qty) {
+    const neededUnits = {};
+    for (const item of cart) neededUnits[item.id] = (neededUnits[item.id] || 0) + unitsOf(item);
+    for (const [id, units] of Object.entries(neededUnits)) {
+      const live = products.find(p => p.id === Number(id));
+      if (live && live.stock < units) {
         toast(`Only ${live.stock} ${productName(live)} in stock — adjust the cart`, 'error');
         return;
       }
     }
     const clientOrderId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const payload = {
-      items: cart.map(i => ({ id: i.id, name: i.name, sku: i.sku, price: i.price, qty: i.qty })),
+      items: cart.map(i => ({ id: i.id, name: i.name, sku: i.sku, price: effPrice(i), qty: i.qty, mode: i.mode })),
       customerId: customer?.id || null,
       method: paymentMethod, cashier: activeCashier.name, tva, discount: discountAmt, clientOrderId,
     };
-    const snapshot = { items: cart, subtotal, discount: discountAmt, tva, total, customer, method: paymentMethod };
+    const snapshot = { items: cart.map(i => ({ ...i, price: effPrice(i) })), subtotal, discount: discountAmt, tva, total, customer, method: paymentMethod };
 
     if (discountAmt > 0) {
       // Submit for manager approval — order completes only once approved.
       try {
         const req = await api.createDiscountRequest({
           cashier: activeCashier.name, cashierId: activeCashier.id,
-          items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price })),
+          items: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: effPrice(i) })),
           subtotal, discountAmt,
         });
         pendingOrderRef.current = { payload, snapshot };
@@ -1528,9 +1543,12 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
             {filtered.map(p => {
               const outOfStock = p.stock <= 0;
               const lowStock = !outOfStock && p.stock < lowStockThreshold;
+              const hasPacket = p.packetPrice > 0 && p.unitsPerPacket > 0;
               return (
-                <button key={p.id} onClick={() => addToCart(p)} disabled={outOfStock}
-                  className={`group relative bg-white rounded-2xl p-3.5 border text-left transition-all ${outOfStock ? 'border-stone-200/80 opacity-50 cursor-not-allowed' : 'border-stone-200/80 hover:border-emerald-600 hover:shadow-lg hover:shadow-emerald-900/5'}`}>
+                <div key={p.id} role="button" tabIndex={outOfStock ? -1 : 0}
+                  onClick={() => !outOfStock && addToCart(p)}
+                  onKeyDown={e => { if (!outOfStock && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); addToCart(p); } }}
+                  className={`group relative bg-white rounded-2xl p-3.5 border text-left transition-all ${outOfStock ? 'border-stone-200/80 opacity-50 cursor-not-allowed' : 'border-stone-200/80 hover:border-emerald-600 hover:shadow-lg hover:shadow-emerald-900/5 cursor-pointer'}`}>
                   {outOfStock ? (
                     <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-medium rounded-md flex items-center gap-1">
                       <AlertTriangle size={9} /> {t('out_of_stock')}
@@ -1549,7 +1567,16 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
                     <div className="font-serif text-emerald-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(p.price)}</div>
                     <div className="text-[10px] text-stone-500">{p.stock} {t('in_stock')}</div>
                   </div>
-                </button>
+                  {hasPacket && (
+                    <button
+                      onClick={e => { e.stopPropagation(); addToCart(p, 'packet'); }}
+                      disabled={p.stock < p.unitsPerPacket}
+                      className="mt-2 w-full flex items-center justify-center gap-1 px-2 py-1.5 bg-sky-50 text-sky-800 text-[11px] font-medium rounded-lg hover:bg-sky-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Package size={11} /> ×{p.unitsPerPacket} pack — {fmt(p.packetPrice)}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -1617,18 +1644,21 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
           ) : (
             <div className="space-y-2">
               {cart.map(item => (
-                <div key={item.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-stone-50 group">
+                <div key={`${item.id}-${item.mode}`} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-stone-50 group">
                   <div className="w-11 h-11 rounded-lg bg-stone-100 flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden">{item.image ? <img src={imageUrl(item.image)} alt="" className="w-full h-full object-cover" /> : item.emoji}</div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-stone-900 truncate">{productName(item)}</div>
-                    <div className="text-xs text-stone-500">{fmt(item.price)}</div>
+                    <div className="text-sm font-medium text-stone-900 truncate">
+                      {productName(item)}
+                      {item.mode === 'packet' && <span className="ml-1.5 px-1.5 py-0.5 bg-sky-50 text-sky-700 text-[10px] font-medium rounded">×{item.unitsPerPacket} pack</span>}
+                    </div>
+                    <div className="text-xs text-stone-500">{fmt(effPrice(item))}</div>
                   </div>
                   <div className="flex items-center gap-1 bg-stone-100 rounded-lg p-0.5">
-                    <button onClick={() => updateQty(item.id, -1)} className="w-6 h-6 rounded-md hover:bg-white flex items-center justify-center"><Minus size={12} /></button>
+                    <button onClick={() => updateQty(item.id, item.mode, -1)} className="w-6 h-6 rounded-md hover:bg-white flex items-center justify-center"><Minus size={12} /></button>
                     <span className="w-7 text-center text-sm font-medium">{item.qty}</span>
-                    <button onClick={() => updateQty(item.id, 1)} className="w-6 h-6 rounded-md hover:bg-white flex items-center justify-center"><Plus size={12} /></button>
+                    <button onClick={() => updateQty(item.id, item.mode, 1)} className="w-6 h-6 rounded-md hover:bg-white flex items-center justify-center"><Plus size={12} /></button>
                   </div>
-                  <button onClick={() => removeItem(item.id)} className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-rose-600"><X size={14} /></button>
+                  <button onClick={() => removeItem(item.id, item.mode)} className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-rose-600"><X size={14} /></button>
                 </div>
               ))}
             </div>
@@ -2029,6 +2059,7 @@ const ProductsPanel = () => {
   const [deleting, setDeleting] = useState(false);
   const [editingCost, setEditingCost] = useState(null); // { id, value }
   const [editingPrice, setEditingPrice] = useState(null); // { id, value }
+  const [editingPacket, setEditingPacket] = useState(null); // { id, price, units }
   const filtered = products.filter(p => {
     if (filter === 'low' && p.stock >= lowStockThreshold) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
@@ -2099,6 +2130,16 @@ const ProductsPanel = () => {
       const updated = await api.updateProduct(p.id, { ...p, price: newPrice });
       patch('products', list => list.map(x => x.id === p.id ? updated : x));
     } catch (e) { toast(e.message || 'Failed to save price', 'error'); }
+  };
+  const savePacket = async (p, rawPrice, rawUnits) => {
+    const newPacketPrice = parseFloat(rawPrice) || 0;
+    const newUnitsPerPacket = parseInt(rawUnits) || 0;
+    setEditingPacket(null);
+    if (newPacketPrice === (p.packetPrice || 0) && newUnitsPerPacket === (p.unitsPerPacket || 0)) return;
+    try {
+      const updated = await api.updateProduct(p.id, { ...p, packetPrice: newPacketPrice, unitsPerPacket: newUnitsPerPacket });
+      patch('products', list => list.map(x => x.id === p.id ? updated : x));
+    } catch (e) { toast(e.message || 'Failed to save packet price', 'error'); }
   };
   // Scan handler: shared by both the modal and the autosensing listener.
   // Existing SKU → show in search results. New barcode → open Add form pre-filled.
@@ -2238,6 +2279,7 @@ const ProductsPanel = () => {
               <th className="px-3 py-3">{t('category')}</th>
               <th className="px-3 py-3">{t('price')}</th>
               <th className="px-3 py-3">Cost</th>
+              <th className="px-3 py-3">Packet</th>
               <th className="px-3 py-3">{t('stock')}</th>
               <th className="px-3 py-3">{t('status')}</th>
               <th className="px-5 py-3"></th>
@@ -2307,6 +2349,52 @@ const ProductsPanel = () => {
                         title={can.editInventory ? 'Click to edit cost' : undefined}
                       >
                         {p.cost > 0 ? fmt(p.cost) : <span className="text-stone-300 text-xs">— set cost</span>}
+                      </button>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
+                    {can.editInventory && editingPacket?.id === p.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          autoFocus
+                          value={editingPacket.price}
+                          onChange={e => setEditingPacket(v => ({ ...v, price: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') savePacket(p, editingPacket.price, editingPacket.units);
+                            if (e.key === 'Escape') setEditingPacket(null);
+                          }}
+                          placeholder="Price"
+                          className="w-16 px-1.5 py-1 text-sm border border-sky-400 rounded focus:outline-none focus:ring-1 focus:ring-sky-500 bg-sky-50"
+                        />
+                        <span className="text-stone-400 text-xs">/</span>
+                        <input
+                          type="number"
+                          value={editingPacket.units}
+                          onChange={e => setEditingPacket(v => ({ ...v, units: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') savePacket(p, editingPacket.price, editingPacket.units);
+                            if (e.key === 'Escape') setEditingPacket(null);
+                          }}
+                          placeholder="Units"
+                          className="w-12 px-1.5 py-1 text-sm border border-sky-400 rounded focus:outline-none focus:ring-1 focus:ring-sky-500 bg-sky-50"
+                        />
+                        <button onClick={() => savePacket(p, editingPacket.price, editingPacket.units)} className="text-emerald-600 hover:text-emerald-800" title="Save">
+                          <CheckCircle2 size={15} />
+                        </button>
+                        <button onClick={() => setEditingPacket(null)} className="text-stone-400 hover:text-rose-600" title="Cancel">
+                          <X size={15} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => can.editInventory && setEditingPacket({ id: p.id, price: p.packetPrice || 0, units: p.unitsPerPacket || 0 })}
+                        className={`text-sm text-stone-600 ${can.editInventory ? 'hover:text-sky-700 hover:underline cursor-pointer' : 'cursor-default'}`}
+                        title={can.editInventory ? 'Click to edit packet price / size' : undefined}
+                      >
+                        {p.packetPrice > 0 && p.unitsPerPacket > 0
+                          ? <>{fmt(p.packetPrice)} <span className="text-stone-400 text-xs">/ {p.unitsPerPacket}</span></>
+                          : <span className="text-stone-300 text-xs">— set packet</span>}
                       </button>
                     )}
                   </td>

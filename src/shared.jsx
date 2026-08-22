@@ -336,7 +336,7 @@ const PRODUCT_EMOJIS = [
 export function ProductForm({ open, onClose, initial }) {
   const { upsertProduct, patch, categories: liveCategories, upsertCategory } = useData();
   const { toast } = useToast();
-  const blank = { name: '', name_fr: '', category: 'cosmetics', grade: '', price: 0, cost: 0, stock: 0, sku: '', emoji: '📦', image: null };
+  const blank = { name: '', name_fr: '', category: 'cosmetics', grade: '', price: 0, cost: 0, stock: 0, sku: '', emoji: '📦', image: null, packetPrice: 0, unitsPerPacket: 0 };
   const [form, setForm] = useState(initial || blank);
   const [uploading, setUploading] = useState(false);
   const [autoGenerateSku, setAutoGenerateSku] = useState(false);
@@ -552,7 +552,10 @@ export function ProductForm({ open, onClose, initial }) {
   // an offline edit replayed later could silently overwrite newer changes
   // someone else made in the meantime, which is worse than asking for a retry.
   const save = async () => {
-    const payload = { ...form, price: Number(form.price), cost: Number(form.cost || 0), discount: 0, stock: Number(form.stock) };
+    const payload = {
+      ...form, price: Number(form.price), cost: Number(form.cost || 0), discount: 0, stock: Number(form.stock),
+      packetPrice: Number(form.packetPrice || 0), unitsPerPacket: Number(form.unitsPerPacket || 0),
+    };
     if (!payload.sku) payload.sku = makeSku(payload.category);
     try {
       const saved = initial?.id
@@ -713,6 +716,17 @@ export function ProductForm({ open, onClose, initial }) {
         <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
         <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
         <Field label="Stock"><Input type="number" value={form.stock} onChange={set('stock')} /></Field>
+      </div>
+
+      {/* Optional packet pricing — lets this product also be sold as a fixed-size
+          packet (e.g. a case of 6) at its own price, alongside the unit price above.
+          Leaving either field at 0 means it's unit-only, same as before. */}
+      <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 space-y-3">
+        <div className="text-xs font-semibold text-stone-600 uppercase tracking-wider">Packet pricing (optional)</div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Packet price (FCFA)"><Input type="number" value={form.packetPrice || ''} onChange={set('packetPrice')} placeholder="e.g. 2 800" /></Field>
+          <Field label="Units per packet"><Input type="number" value={form.unitsPerPacket || ''} onChange={set('unitsPerPacket')} placeholder="e.g. 6" /></Field>
+        </div>
       </div>
 
       {/* Bulk purchase calculator */}
